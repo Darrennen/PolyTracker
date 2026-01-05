@@ -6,7 +6,7 @@ Deploy this on Railway for continuous monitoring.
 import os
 import sys
 import logging
-from polymarket_monitor import PolymarketMonitor
+from polymarket_monitor import PolymarketMonitor, DetectionConfig
 
 # Configure logging for cloud
 logging.basicConfig(
@@ -25,11 +25,8 @@ def main():
     logger.info("PolyTracker Worker Starting")
     logger.info("=" * 50)
 
-    # Check required environment variables
-    required_vars = []
-    optional_vars = {
-        "DATABASE_URL": "PostgreSQL connection",
-        "POLYGONSCAN_API_KEY": "Wallet age detection",
+    # Check environment variables
+    env_vars = {
         "TELEGRAM_BOT_TOKEN": "Telegram alerts",
         "TELEGRAM_CHAT_ID": "Telegram alerts",
         "SLACK_WEBHOOK_URL": "Slack alerts",
@@ -37,10 +34,9 @@ def main():
     }
 
     logger.info("Environment configuration:")
-    for var, description in optional_vars.items():
+    for var, description in env_vars.items():
         value = os.getenv(var)
         if value:
-            # Mask sensitive values
             masked = value[:4] + "..." + value[-4:] if len(value) > 10 else "***"
             logger.info(f"  ✓ {var}: {masked} ({description})")
         else:
@@ -48,11 +44,12 @@ def main():
 
     # Get configuration from environment
     scan_interval = int(os.getenv("SCAN_INTERVAL_MINUTES", 5))
-    categories = os.getenv("CATEGORIES", "news,crypto,cryptocurrency,politics,sports")
-    categories_list = [c.strip() for c in categories.split(",")]
+    wallet_age = int(os.getenv("WALLET_AGE_DAYS", 14))
+    min_bet = float(os.getenv("MIN_BET_SIZE", 10000))
+    max_odds = float(os.getenv("MAX_ODDS", 0.10))
 
+    logger.info(f"Detection config: age<{wallet_age}d, bet>${min_bet:,.0f}, odds<{max_odds*100:.0f}%")
     logger.info(f"Scan interval: {scan_interval} minutes")
-    logger.info(f"Categories: {categories_list}")
 
     # Check for at least one notification method
     has_telegram = os.getenv("TELEGRAM_BOT_TOKEN") and os.getenv("TELEGRAM_CHAT_ID")
@@ -63,9 +60,22 @@ def main():
         logger.warning("Set TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID or SLACK_WEBHOOK_URL")
         logger.warning("Continuing without alerts...")
 
+    # Create detection config
+    config = DetectionConfig(
+        wallet_age_days=wallet_age,
+        min_bet_size=min_bet,
+        max_odds=max_odds
+    )
+
     # Initialize monitor
     try:
-        monitor = PolymarketMonitor(categories=categories_list)
+        monitor = PolymarketMonitor(
+            telegram_token=os.getenv("TELEGRAM_BOT_TOKEN"),
+            telegram_chat_id=os.getenv("TELEGRAM_CHAT_ID"),
+            slack_webhook_url=os.getenv("SLACK_WEBHOOK_URL"),
+            api_key=os.getenv("POLYMARKET_API_KEY"),
+            config=config
+        )
         logger.info("Monitor initialized successfully")
     except Exception as e:
         logger.error(f"Failed to initialize monitor: {e}")

@@ -1,18 +1,20 @@
 """
-PolyTracker - Polymarket Suspicious Activity Monitor
-Detects suspicious betting patterns on Polymarket prediction markets.
+Polymarket Suspicious Wallet Monitor
+Enhanced version using official Polymarket APIs:
+- Data API (data-api.polymarket.com) - trades, activity, positions
+- Gamma API (gamma-api.polymarket.com) - market metadata
+- CLOB API (clob.polymarket.com) - orderbook/pricing
 """
 
 import requests
+import sqlite3
 import time
-import os
-from datetime import datetime
-from typing import List, Dict, Optional
+import json
+from datetime import datetime, timedelta
+from typing import List, Dict, Optional, Tuple
 import logging
-from dotenv import load_dotenv
-
-# Load environment variables
-load_dotenv()
+from dataclasses import dataclass, field
+from enum import Enum
 
 # Configure logging
 logging.basicConfig(
@@ -21,87 +23,396 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Import database layer
-from database import Database
+
+class AlertChannel(Enum):
+    TELEGRAM = "telegram"
+    SLACK = "slack"
 
 
-class PolygonRPC:
-    """Helper class to get wallet age from Polygonscan"""
+@dataclass
+class DetectionConfig:
+    """Configuration for suspicious activity detection"""
+    wallet_age_days: int = 14  # Flag wallets newer than X days
+    min_bet_size: float = 10000  # Minimum bet size in USD (CASH)
+    max_odds: float = 0.10  # Flag bets on outcomes with odds below X (e.g., 10 cents)
+    check_wallet_age: bool = True
+    check_bet_size: bool = True
+    check_odds: bool = True
+    categories: List[str] = field(default_factory=lambda: ["news", "crypto", "politics"])
 
+
+class PolymarketAPI:
+    """
+    Polymarket API client using official endpoints:
+    - Data API: https://data-api.polymarket.com
+    - Gamma API: https://gamma-api.polymarket.com  
+    - CLOB API: https://clob.polymarket.com
+    """
+    
+    DATA_API = "https://data-api.polymarket.com"
+    GAMMA_API = "https://gamma-api.polymarket.com"
+    CLOB_API = "https://clob.polymarket.com"
+    
     def __init__(self, api_key: str = None):
-        self.api_key = api_key or os.getenv("POLYGONSCAN_API_KEY")
-        self.base_url = "https://api.polygonscan.com/api"
-
-    def get_wallet_age_days(self, wallet_address: str) -> Optional[int]:
-        """Get the age of a wallet in days using Polygonscan API"""
-        if not self.api_key:
-            logger.warning("No Polygonscan API key - wallet age detection disabled")
-            return None
-
+        self.api_key = api_key
+        self.headers = {"Content-Type": "application/json"}
+        if api_key:
+            self.headers["Authorization"] = f"Bearer {api_key}"
+    
+    # =========================================================================
+    # Data API - Trades, Activity, Positions
+    # =========================================================================
+    
+    def get_trades(
+        self,
+        user: str = None,
+        market: str = None,
+        event_id: int = None,
+        side: str = None,
+        filter_type: str = "CASH",  # CASH or TOKENS
+        filter_amount: float = None,  # Min amount filter
+        limit: int = 100,
+        offset: int = 0,
+        taker_only: bool = True
+    ) -> List[Dict]:
+        """
+        Get trades from Data API
+        
+        Endpoint: GET https://data-api.polymarket.com/trades
+        
+        Response fields:
+        - proxyWallet: User address
+        - side: BUY or SELL
+        - size: Number of shares
+        - price: Price per share (0-1)
+        - timestamp: Unix timestamp
+        - outcome: YES or NO
+        - title: Market title
+        - transactionHash: Tx hash
+        """
         try:
+            url = f"{self.DATA_API}/trades"
             params = {
-                "module": "account",
-                "action": "txlist",
-                "address": wallet_address,
-                "startblock": 0,
-                "endblock": 99999999,
-                "page": 1,
-                "offset": 1,  # Only need first transaction
-                "sort": "asc",
-                "apikey": self.api_key
+                "limit": min(limit, 10000),
+                "offset": offset,
+                "takerOnly": str(taker_only).lower()
             }
+            
+            if user:
+                params["user"] = user
+            if market:
+                params["market"] = market
+            if event_id:
+                params["eventId"] = event_id
+            if side:
+                params["side"] = side
+            if filter_type and filter_amount is not None:
+                params["filterType"] = filter_type
+                params["filterAmount"] = filter_amount
+            
+            response = requests.get(url, params=params, headers=self.headers, timeout=30)
+            
+            if response.status_code == 200:
+                return response.json()
+            else:
+                logger.error(f"Data API trades error: {response.status_code}")
+                return []
+                
+        except Exception as e:
+            logger.error(f"Error fetching trades: {e}")
+            return []
+    
+    def get_user_activity(
+        self,
+        user: str,
+        market: str = None,
+        activity_type: List[str] = None,  # TRADE, SPLIT, MERGE, REDEEM, REWARD
+        side: str = None,
+        start: int = None,
+        end: int = None,
+        sort_by: str = "TIMESTAMP",
+        sort_direction: str = "DESC",
+        limit: int = 100,
+        offset: int = 0
+    ) -> List[Dict]:
+        """
+        Get user activity from Data API
+        
+        Endpoint: GET https://data-api.polymarket.com/activity
+        
+        Response fields:
+        - proxyWallet: User address
+        - type: TRADE, SPLIT, MERGE, REDEEM, REWARD, CONVERSION
+        - size: Token amount
+        - usdcSize: USD value
+        - price: Entry price
+        - side: BUY or SELL
+        - outcome: YES or NO
+        - timestamp: Unix timestamp
+        """
+        try:
+            url = f"{self.DATA_API}/activity"
+            params = {
+                "user": user,
+                "limit": min(limit, 500),
+                "offset": offset,
+                "sortBy": sort_by,
+                "sortDirection": sort_direction
+            }
+            
+            if market:
+                params["market"] = market
+            if activity_type:
+                params["type"] = ",".join(activity_type)
+            if side:
+                params["side"] = side
+            if start:
+                params["start"] = start
+            if end:
+                params["end"] = end
+            
+            response = requests.get(url, params=params, headers=self.headers, timeout=30)
+            
+            if response.status_code == 200:
+                return response.json()
+            else:
+                logger.error(f"Data API activity error: {response.status_code}")
+                return []
+                
+        except Exception as e:
+            logger.error(f"Error fetching activity: {e}")
+            return []
+    
+    def get_user_positions(self, user: str) -> List[Dict]:
+        """
+        Get current positions for a user
+        
+        Endpoint: GET https://data-api.polymarket.com/positions
+        """
+        try:
+            url = f"{self.DATA_API}/positions"
+            params = {"user": user}
+            
+            response = requests.get(url, params=params, headers=self.headers, timeout=30)
+            
+            if response.status_code == 200:
+                return response.json()
+            else:
+                return []
+                
+        except Exception as e:
+            logger.error(f"Error fetching positions: {e}")
+            return []
+    
+    # =========================================================================
+    # Gamma API - Market Metadata
+    # =========================================================================
+    
+    def get_events(
+        self,
+        active: bool = True,
+        closed: bool = False,
+        limit: int = 50,
+        offset: int = 0,
+        order: str = "id",
+        ascending: bool = False
+    ) -> List[Dict]:
+        """
+        Get events (which contain markets) from Gamma API
+        
+        Endpoint: GET https://gamma-api.polymarket.com/events
+        """
+        try:
+            url = f"{self.GAMMA_API}/events"
+            params = {
+                "limit": limit,
+                "offset": offset,
+                "order": order,
+                "ascending": str(ascending).lower(),
+                "closed": str(closed).lower()
+            }
+            
+            response = requests.get(url, params=params, headers=self.headers, timeout=30)
+            
+            if response.status_code == 200:
+                return response.json()
+            else:
+                logger.error(f"Gamma API events error: {response.status_code}")
+                return []
+                
+        except Exception as e:
+            logger.error(f"Error fetching events: {e}")
+            return []
+    
+    def get_markets(
+        self,
+        active: bool = True,
+        closed: bool = False,
+        limit: int = 100,
+        offset: int = 0,
+        tag_id: int = None
+    ) -> List[Dict]:
+        """
+        Get markets from Gamma API
+        
+        Endpoint: GET https://gamma-api.polymarket.com/markets
+        """
+        try:
+            url = f"{self.GAMMA_API}/markets"
+            params = {
+                "limit": limit,
+                "offset": offset,
+                "closed": str(closed).lower()
+            }
+            
+            if tag_id:
+                params["tag_id"] = tag_id
+            
+            response = requests.get(url, params=params, headers=self.headers, timeout=30)
+            
+            if response.status_code == 200:
+                return response.json()
+            else:
+                logger.error(f"Gamma API markets error: {response.status_code}")
+                return []
+                
+        except Exception as e:
+            logger.error(f"Error fetching markets: {e}")
+            return []
+    
+    def get_market_by_id(self, condition_id: str) -> Optional[Dict]:
+        """Get single market by condition ID"""
+        try:
+            url = f"{self.GAMMA_API}/markets/{condition_id}"
+            response = requests.get(url, headers=self.headers, timeout=30)
+            
+            if response.status_code == 200:
+                return response.json()
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error fetching market {condition_id}: {e}")
+            return None
+    
+    # =========================================================================
+    # CLOB API - Orderbook/Pricing
+    # =========================================================================
+    
+    def get_market_prices(self, token_id: str) -> Dict:
+        """
+        Get current prices from CLOB API
+        
+        Endpoint: GET https://clob.polymarket.com/price
+        """
+        try:
+            url = f"{self.CLOB_API}/price"
+            params = {"token_id": token_id}
+            
+            response = requests.get(url, params=params, headers=self.headers, timeout=30)
+            
+            if response.status_code == 200:
+                return response.json()
+            return {}
+            
+        except Exception as e:
+            logger.error(f"Error fetching prices: {e}")
+            return {}
+    
+    def get_orderbook(self, token_id: str) -> Dict:
+        """Get orderbook from CLOB API"""
+        try:
+            url = f"{self.CLOB_API}/book"
+            params = {"token_id": token_id}
+            
+            response = requests.get(url, params=params, headers=self.headers, timeout=30)
+            
+            if response.status_code == 200:
+                return response.json()
+            return {}
+            
+        except Exception as e:
+            logger.error(f"Error fetching orderbook: {e}")
+            return {}
 
-            response = requests.get(self.base_url, params=params, timeout=10)
 
+class PolygonBlockscout:
+    """Helper class to get wallet creation date using Blockscout API"""
+    
+    def __init__(self):
+        self.base_url = "https://polygon.blockscout.com/api/v2"
+    
+    def get_wallet_first_tx_timestamp(self, wallet_address: str) -> Optional[datetime]:
+        """Get the timestamp of the first transaction for a wallet"""
+        try:
+            # Get first outgoing transaction
+            url = f"{self.base_url}/addresses/{wallet_address}/transactions"
+            params = {"filter": "from", "sort": "asc", "limit": 1}
+            
+            response = requests.get(url, params=params, timeout=15)
+            
             if response.status_code == 200:
                 data = response.json()
-                if data.get("status") == "1" and data.get("result"):
-                    first_tx = data["result"][0]
-                    first_tx_time = int(first_tx.get("timeStamp", 0))
-                    if first_tx_time > 0:
-                        wallet_created = datetime.fromtimestamp(first_tx_time)
-                        age_days = (datetime.now() - wallet_created).days
-                        return age_days
-
+                items = data.get("items", [])
+                
+                if items:
+                    first_tx = items[0]
+                    timestamp_str = first_tx.get("timestamp")
+                    if timestamp_str:
+                        return datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+            
+            # Fallback: check internal transactions
+            url = f"{self.base_url}/addresses/{wallet_address}/internal-transactions"
+            params = {"sort": "asc", "limit": 1}
+            
+            response = requests.get(url, params=params, timeout=15)
+            
+            if response.status_code == 200:
+                data = response.json()
+                items = data.get("items", [])
+                
+                if items:
+                    first_tx = items[0]
+                    timestamp_str = first_tx.get("timestamp")
+                    if timestamp_str:
+                        return datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+            
             return None
-
+            
         except Exception as e:
-            logger.error(f"Error getting wallet age: {e}")
+            logger.error(f"Error getting wallet first tx: {e}")
             return None
+    
+    def get_wallet_age_days(self, wallet_address: str) -> Optional[int]:
+        """Get the age of a wallet in days"""
+        first_tx_time = self.get_wallet_first_tx_timestamp(wallet_address)
+        
+        if first_tx_time:
+            now = datetime.now(first_tx_time.tzinfo)
+            age = now - first_tx_time
+            return age.days
+        
+        return None
 
 
-class NotificationManager:
-    """Handles sending alerts via Telegram and Slack"""
-
-    def __init__(self, telegram_token: str = None, telegram_chat_id: str = None,
-                 slack_webhook_url: str = None):
-        self.telegram_token = telegram_token or os.getenv("TELEGRAM_BOT_TOKEN")
-        self.telegram_chat_id = telegram_chat_id or os.getenv("TELEGRAM_CHAT_ID")
-        self.slack_webhook_url = slack_webhook_url or os.getenv("SLACK_WEBHOOK_URL")
-
-    def send_telegram(self, data: Dict) -> bool:
+class AlertManager:
+    """Manages alerts to Telegram and Slack"""
+    
+    def __init__(
+        self,
+        telegram_token: str = None,
+        telegram_chat_id: str = None,
+        slack_webhook_url: str = None
+    ):
+        self.telegram_token = telegram_token
+        self.telegram_chat_id = telegram_chat_id
+        self.slack_webhook_url = slack_webhook_url
+    
+    def send_telegram_alert(self, message: str) -> bool:
         """Send alert via Telegram"""
         if not self.telegram_token or not self.telegram_chat_id:
             return False
-
+        
         try:
-            message = f"""
-🚨 *SUSPICIOUS ACTIVITY DETECTED* 🚨
-
-*Market:* {data['market_question'][:100]}
-*Category:* {data['market_category']}
-
-*Wallet:* `{data['wallet_address']}`
-*Wallet Age:* {data.get('wallet_age_days') or 'Unknown'} days
-
-*Bet Details:*
-• Size: ${data['bet_size']:,.2f}
-• Outcome: {data['outcome']}
-• Odds: {data['odds']*100:.1f}%
-
-[View on Polygonscan](https://polygonscan.com/address/{data['wallet_address']})
-            """
-
             url = f"https://api.telegram.org/bot{self.telegram_token}/sendMessage"
             payload = {
                 "chat_id": self.telegram_chat_id,
@@ -109,399 +420,842 @@ class NotificationManager:
                 "parse_mode": "Markdown",
                 "disable_web_page_preview": True
             }
-
+            
             response = requests.post(url, json=payload, timeout=10)
-            if response.status_code == 200:
-                logger.info(f"Telegram alert sent for trade {data.get('trade_id')}")
-                return True
-            else:
-                logger.error(f"Telegram error: {response.status_code} - {response.text}")
-                return False
-
+            return response.status_code == 200
+            
         except Exception as e:
-            logger.error(f"Error sending Telegram alert: {e}")
+            logger.error(f"Telegram error: {e}")
             return False
-
-    def send_slack(self, data: Dict) -> bool:
-        """Send alert via Slack webhook"""
+    
+    def send_slack_alert(self, message: str) -> bool:
+        """Send alert via Slack"""
         if not self.slack_webhook_url:
             return False
-
+        
         try:
-            blocks = [
-                {
-                    "type": "header",
-                    "text": {
-                        "type": "plain_text",
-                        "text": "🚨 Suspicious Activity Detected",
-                        "emoji": True
-                    }
-                },
-                {
-                    "type": "section",
-                    "fields": [
-                        {"type": "mrkdwn", "text": f"*Market:*\n{data['market_question'][:50]}..."},
-                        {"type": "mrkdwn", "text": f"*Category:*\n{data['market_category']}"},
-                        {"type": "mrkdwn", "text": f"*Wallet:*\n`{data['wallet_address'][:10]}...`"},
-                        {"type": "mrkdwn", "text": f"*Wallet Age:*\n{data.get('wallet_age_days') or 'Unknown'} days"},
-                        {"type": "mrkdwn", "text": f"*Bet Size:*\n${data['bet_size']:,.2f}"},
-                        {"type": "mrkdwn", "text": f"*Position:*\n{data['outcome']} @ {data['odds']*100:.1f}%"}
-                    ]
-                },
-                {
-                    "type": "actions",
-                    "elements": [
-                        {
-                            "type": "button",
-                            "text": {"type": "plain_text", "text": "View on Polygonscan"},
-                            "url": f"https://polygonscan.com/address/{data['wallet_address']}"
-                        }
-                    ]
-                }
-            ]
-
-            payload = {"blocks": blocks}
-            response = requests.post(self.slack_webhook_url, json=payload, timeout=10)
-
-            if response.status_code == 200:
-                logger.info(f"Slack alert sent for trade {data.get('trade_id')}")
-                return True
-            else:
-                logger.error(f"Slack error: {response.status_code}")
-                return False
-
+            response = requests.post(
+                self.slack_webhook_url,
+                json={"text": message},
+                timeout=10
+            )
+            return response.status_code == 200
+            
         except Exception as e:
-            logger.error(f"Error sending Slack alert: {e}")
+            logger.error(f"Slack error: {e}")
             return False
+    
+    def format_alert(self, trade: Dict, channel: AlertChannel) -> str:
+        """Format trade alert message"""
+        wallet = trade.get('wallet_address', trade.get('proxyWallet', 'Unknown'))
+        wallet_short = f"{wallet[:10]}...{wallet[-8:]}"
+        wallet_age = trade.get('wallet_age_days')
+        wallet_age_str = f"{wallet_age} days" if wallet_age is not None else "Unknown"
+        
+        # Calculate USD value
+        size = float(trade.get('size', 0))
+        price = float(trade.get('price', 0))
+        usd_value = trade.get('usdcSize') or trade.get('bet_size') or (size * price)
+        
+        # Risk indicators
+        risks = []
+        if wallet_age is not None and wallet_age < 7:
+            risks.append("🔴 VERY NEW WALLET")
+        elif wallet_age is not None and wallet_age < 14:
+            risks.append("🟠 NEW WALLET")
+        
+        if price < 0.05:
+            risks.append("🔴 VERY LOW ODDS (<5¢)")
+        elif price < 0.10:
+            risks.append("🟠 LOW ODDS (<10¢)")
+        
+        if usd_value >= 50000:
+            risks.append("🔴 WHALE BET (>$50k)")
+        elif usd_value >= 25000:
+            risks.append("🟠 LARGE BET (>$25k)")
+        
+        risk_str = " | ".join(risks) if risks else "⚠️ Suspicious Pattern"
+        
+        market_title = trade.get('title', trade.get('market_question', 'Unknown Market'))[:100]
+        outcome = trade.get('outcome', 'Unknown')
+        side = trade.get('side', 'Unknown')
+        
+        if channel == AlertChannel.TELEGRAM:
+            return f"""
+🚨 *SUSPICIOUS TRADE DETECTED* 🚨
 
-    def send_alert(self, data: Dict) -> Dict[str, bool]:
-        """Send alerts to all configured channels"""
+{risk_str}
+
+*Market:* {market_title}
+*Position:* {outcome} ({side})
+
+*Wallet:* `{wallet}`
+*Age:* {wallet_age_str}
+
+*Trade Details:*
+• Size: *${usd_value:,.2f}*
+• Entry: *{price*100:.1f}¢* on the dollar
+• Shares: *{size:,.0f}*
+
+[View on Polygonscan](https://polygonscan.com/address/{wallet})
+            """
+        else:
+            return f"""
+:rotating_light: *SUSPICIOUS TRADE DETECTED*
+
+{risk_str}
+
+*Market:* {market_title}
+*Position:* {outcome} ({side})
+*Wallet:* `{wallet}` (Age: {wallet_age_str})
+*Value:* ${usd_value:,.2f} at {price*100:.1f}¢
+
+<https://polygonscan.com/address/{wallet}|View on Polygonscan>
+            """
+    
+    def send_alert(self, trade: Dict, channels: List[AlertChannel] = None) -> Dict[str, bool]:
+        """Send alert to specified channels"""
+        if channels is None:
+            channels = []
+            if self.telegram_token:
+                channels.append(AlertChannel.TELEGRAM)
+            if self.slack_webhook_url:
+                channels.append(AlertChannel.SLACK)
+        
         results = {}
-        results["telegram"] = self.send_telegram(data)
-        results["slack"] = self.send_slack(data)
+        for channel in channels:
+            message = self.format_alert(trade, channel)
+            if channel == AlertChannel.TELEGRAM:
+                results["telegram"] = self.send_telegram_alert(message)
+            elif channel == AlertChannel.SLACK:
+                results["slack"] = self.send_slack_alert(message)
+        
         return results
 
 
 class PolymarketMonitor:
     """Main monitoring class for Polymarket suspicious activity"""
-
-    BASE_URL = "https://clob.polymarket.com"
-    GAMMA_URL = "https://gamma-api.polymarket.com"
-
-    # Default detection thresholds (can be overridden)
-    WALLET_AGE_DAYS = int(os.getenv("WALLET_AGE_DAYS", 30))
-    MIN_BET_SIZE = float(os.getenv("MIN_BET_SIZE", 10000))
-    MAX_ODDS = float(os.getenv("MAX_ODDS", 0.20))
-
-    # Categories to monitor
-    DEFAULT_CATEGORIES = ["news", "crypto", "cryptocurrency", "politics", "sports"]
-
-    def __init__(self, db_path: str = "polymarket_monitor.db",
-                 telegram_token: str = None, telegram_chat_id: str = None,
-                 slack_webhook_url: str = None, api_key: str = None,
-                 categories: List[str] = None):
-
-        # Database
-        self.db = Database(db_path)
-
-        # API configuration
-        self.api_key = api_key or os.getenv("POLYMARKET_API_KEY")
-        self.headers = {"Content-Type": "application/json"}
-        if self.api_key:
-            self.headers["Authorization"] = f"Bearer {self.api_key}"
-            logger.info("API key configured - using authenticated requests")
-
-        # Wallet age checker
-        self.polygon_rpc = PolygonRPC()
-
-        # Notifications
-        self.notifications = NotificationManager(
+    
+    def __init__(
+        self,
+        db_path: str = "polymarket_monitor.db",
+        telegram_token: str = None,
+        telegram_chat_id: str = None,
+        slack_webhook_url: str = None,
+        api_key: str = None,
+        config: DetectionConfig = None
+    ):
+        self.db_path = db_path
+        self.config = config or DetectionConfig()
+        
+        # Initialize API client
+        self.api = PolymarketAPI(api_key=api_key)
+        self.blockchain = PolygonBlockscout()
+        self.alert_manager = AlertManager(
             telegram_token=telegram_token,
             telegram_chat_id=telegram_chat_id,
             slack_webhook_url=slack_webhook_url
         )
-
-        # Categories to monitor
-        self.categories = categories or self.DEFAULT_CATEGORIES
-
-        logger.info(f"Monitor initialized - Thresholds: age<{self.WALLET_AGE_DAYS}d, "
-                    f"bet>${self.MIN_BET_SIZE:,}, odds<{self.MAX_ODDS*100}%")
-
-    def get_markets(self, active_only: bool = True) -> List[Dict]:
-        """Fetch markets from Polymarket"""
+        
+        self.init_database()
+    
+    def init_database(self):
+        """Initialize SQLite database"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        # Suspicious trades
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS suspicious_trades (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trade_id TEXT UNIQUE,
+                wallet_address TEXT,
+                market_id TEXT,
+                market_question TEXT,
+                market_category TEXT,
+                bet_size REAL,
+                outcome TEXT,
+                side TEXT,
+                odds REAL,
+                shares REAL,
+                timestamp TEXT,
+                transaction_hash TEXT,
+                wallet_age_days INTEGER,
+                detected_at TEXT,
+                alerted INTEGER DEFAULT 0,
+                alert_channels TEXT
+            )
+        """)
+        
+        # Tracked wallets
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS tracked_wallets (
+                wallet_address TEXT PRIMARY KEY,
+                label TEXT,
+                added_at TEXT,
+                reason TEXT,
+                active INTEGER DEFAULT 1,
+                total_alerts INTEGER DEFAULT 0,
+                last_activity TEXT
+            )
+        """)
+        
+        # Wallet analysis
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS wallet_analysis (
+                wallet_address TEXT PRIMARY KEY,
+                first_seen TEXT,
+                wallet_created_at TEXT,
+                total_bets INTEGER DEFAULT 0,
+                total_volume REAL DEFAULT 0,
+                suspicious_bets INTEGER DEFAULT 0,
+                last_updated TEXT
+            )
+        """)
+        
+        # Markets cache
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS markets_cache (
+                market_id TEXT PRIMARY KEY,
+                question TEXT,
+                category TEXT,
+                active INTEGER,
+                cached_at TEXT
+            )
+        """)
+        
+        # Scan history
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS scan_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                started_at TEXT,
+                completed_at TEXT,
+                markets_scanned INTEGER,
+                trades_analyzed INTEGER,
+                suspicious_found INTEGER,
+                status TEXT
+            )
+        """)
+        
+        conn.commit()
+        conn.close()
+        logger.info("Database initialized")
+    
+    def add_tracked_wallet(
+        self,
+        wallet_address: str,
+        label: str = None,
+        reason: str = None
+    ) -> bool:
+        """Add wallet to tracking list"""
         try:
-            url = f"{self.GAMMA_URL}/events"
-            params = {"active": "true"} if active_only else {}
-
-            response = self._make_request("GET", url, params=params)
-
-            if response and response.status_code == 200:
-                data = response.json()
-                markets = []
-
-                for event in data:
-                    markets_list = event.get("markets", [])
-                    for market in markets_list:
-                        tags = [tag.lower() for tag in event.get("tags", [])]
-                        if any(cat in tags for cat in self.categories):
-                            market_data = {
-                                "market_id": market.get("id"),
-                                "question": market.get("question"),
-                                "category": ", ".join(event.get("tags", [])),
-                                "active": market.get("active", True)
-                            }
-                            markets.append(market_data)
-                            self.db.cache_market(market_data)
-
-                logger.info(f"Fetched {len(markets)} markets in monitored categories")
-                return markets
-
-            return []
-
+            wallet_address = wallet_address.lower().strip()
+            
+            if not wallet_address.startswith("0x") or len(wallet_address) != 42:
+                return False
+            
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                INSERT OR REPLACE INTO tracked_wallets 
+                (wallet_address, label, added_at, reason, active)
+                VALUES (?, ?, ?, ?, 1)
+            """, (
+                wallet_address,
+                label or f"Wallet {wallet_address[:8]}",
+                datetime.now().isoformat(),
+                reason or "Manually added"
+            ))
+            
+            conn.commit()
+            conn.close()
+            return True
+            
         except Exception as e:
-            logger.error(f"Error fetching markets: {e}")
-            return []
-
-    def get_trades(self, market_id: str) -> List[Dict]:
-        """Fetch recent trades for a specific market"""
+            logger.error(f"Error adding tracked wallet: {e}")
+            return False
+    
+    def remove_tracked_wallet(self, wallet_address: str) -> bool:
+        """Remove wallet from tracking"""
         try:
-            url = f"{self.BASE_URL}/trades"
-            params = {"market": market_id}
-
-            response = self._make_request("GET", url, params=params)
-
-            if response and response.status_code == 200:
-                return response.json()
-
-            return []
-
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute(
+                "DELETE FROM tracked_wallets WHERE wallet_address = ?",
+                (wallet_address.lower(),)
+            )
+            conn.commit()
+            conn.close()
+            return True
         except Exception as e:
-            logger.error(f"Error fetching trades: {e}")
-            return []
-
-    def get_market_prices(self, market_id: str) -> Dict:
-        """Get current market prices/odds"""
+            logger.error(f"Error removing wallet: {e}")
+            return False
+    
+    def get_tracked_wallets(self, active_only: bool = True) -> List[Dict]:
+        """Get all tracked wallets"""
         try:
-            url = f"{self.GAMMA_URL}/markets/{market_id}"
-
-            response = self._make_request("GET", url)
-
-            if response and response.status_code == 200:
-                data = response.json()
-                tokens = data.get("tokens", [])
-                prices = {}
-
-                for token in tokens:
-                    outcome = token.get("outcome")
-                    price = float(token.get("price", 0))
-                    prices[outcome] = price
-
-                return prices
-
-            return {}
-
-        except Exception as e:
-            logger.error(f"Error fetching market prices: {e}")
-            return {}
-
-    def _make_request(self, method: str, url: str, **kwargs) -> Optional[requests.Response]:
-        """Make HTTP request with retry logic"""
-        max_retries = 3
-        backoff = 2
-
-        for attempt in range(max_retries):
-            try:
-                kwargs.setdefault("headers", self.headers)
-                kwargs.setdefault("timeout", 30)
-
-                if method == "GET":
-                    response = requests.get(url, **kwargs)
-                else:
-                    response = requests.post(url, **kwargs)
-
-                if response.status_code == 429:  # Rate limited
-                    wait_time = backoff ** attempt
-                    logger.warning(f"Rate limited, waiting {wait_time}s...")
-                    time.sleep(wait_time)
-                    continue
-
-                return response
-
-            except requests.exceptions.RequestException as e:
-                logger.error(f"Request error (attempt {attempt + 1}): {e}")
-                if attempt < max_retries - 1:
-                    time.sleep(backoff ** attempt)
-
-        return None
-
-    def analyze_trade(self, trade: Dict, market_data: Dict, current_odds: Dict) -> Optional[Dict]:
-        """Analyze a trade for suspicious patterns"""
-        try:
-            wallet_address = trade.get("maker_address") or trade.get("taker_address")
-            if not wallet_address:
-                return None
-
-            trade_id = trade.get("id")
-
-            # Skip if already processed
-            if self.db.trade_exists(trade_id):
-                return None
-
-            # Get trade details
-            size = float(trade.get("size", 0))
-            price = float(trade.get("price", 0))
-            bet_value = size * price
-            outcome = trade.get("outcome")
-
-            # Check if wallet is monitored (bypass thresholds)
-            is_monitored = self.db.is_wallet_monitored(wallet_address)
-
-            if not is_monitored:
-                # Apply normal threshold checks
-                if bet_value < self.MIN_BET_SIZE:
-                    return None
-
-                odds = current_odds.get(outcome, 1.0)
-                if odds > self.MAX_ODDS:
-                    return None
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            if active_only:
+                cursor.execute("SELECT * FROM tracked_wallets WHERE active = 1")
             else:
-                odds = current_odds.get(outcome, 1.0)
-
-            # Get wallet age
-            wallet_age = self.polygon_rpc.get_wallet_age_days(wallet_address)
-
-            # Determine if suspicious
-            is_suspicious = False
-            detection_source = "automatic"
-
-            if is_monitored:
-                is_suspicious = True
-                detection_source = "monitored_wallet"
-            elif wallet_age is None or wallet_age < self.WALLET_AGE_DAYS:
-                is_suspicious = True
-                detection_source = "automatic"
-
-            if is_suspicious:
-                return {
-                    "trade_id": trade_id,
-                    "wallet_address": wallet_address,
-                    "market_id": market_data["market_id"],
-                    "market_question": market_data["question"],
-                    "market_category": market_data["category"],
-                    "bet_size": bet_value,
-                    "outcome": outcome,
-                    "odds": odds,
-                    "timestamp": trade.get("timestamp"),
-                    "wallet_age_days": wallet_age,
-                    "detection_source": detection_source
-                }
-
-            return None
-
+                cursor.execute("SELECT * FROM tracked_wallets")
+            
+            columns = [d[0] for d in cursor.description]
+            wallets = [dict(zip(columns, row)) for row in cursor.fetchall()]
+            conn.close()
+            return wallets
+            
+        except Exception as e:
+            logger.error(f"Error fetching tracked wallets: {e}")
+            return []
+    
+    def search_wallets(self, query: str) -> List[Dict]:
+        """Search wallets by address or label"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            search_term = f"%{query}%"
+            cursor.execute("""
+                SELECT DISTINCT wallet_address, 'tracked' as source, label as info
+                FROM tracked_wallets 
+                WHERE wallet_address LIKE ? OR label LIKE ?
+                UNION
+                SELECT DISTINCT wallet_address, 'suspicious' as source, 
+                       CAST(suspicious_bets AS TEXT) || ' suspicious bets' as info
+                FROM wallet_analysis 
+                WHERE wallet_address LIKE ?
+            """, (search_term, search_term, search_term))
+            
+            columns = ['wallet_address', 'source', 'info']
+            results = [dict(zip(columns, row)) for row in cursor.fetchall()]
+            conn.close()
+            return results
+            
+        except Exception as e:
+            logger.error(f"Error searching wallets: {e}")
+            return []
+    
+    def is_tracked_wallet(self, wallet_address: str) -> bool:
+        """Check if wallet is being tracked"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT 1 FROM tracked_wallets WHERE wallet_address = ? AND active = 1",
+                (wallet_address.lower(),)
+            )
+            result = cursor.fetchone() is not None
+            conn.close()
+            return result
+        except:
+            return False
+    
+    def analyze_trade(self, trade: Dict) -> Optional[Dict]:
+        """
+        Analyze a trade for suspicious patterns
+        
+        Trade object from Data API has:
+        - proxyWallet: user address
+        - side: BUY or SELL  
+        - size: number of shares
+        - price: price per share (0-1)
+        - outcome: YES or NO
+        - title: market title
+        - timestamp: unix timestamp
+        - transactionHash: tx hash
+        - conditionId: market ID
+        """
+        try:
+            wallet = trade.get('proxyWallet', '').lower()
+            if not wallet:
+                return None
+            
+            # Calculate USD value
+            size = float(trade.get('size', 0))
+            price = float(trade.get('price', 0))
+            usd_value = size * price  # This is approximate; actual is size for buys
+            
+            # For BUY orders, the cost is size * price
+            # For market buys at low prices, the USD spent is the number of shares * entry price
+            side = trade.get('side', 'BUY')
+            
+            # Check bet size threshold
+            if self.config.check_bet_size and usd_value < self.config.min_bet_size:
+                return None
+            
+            # Check entry price (odds) - flag low-price bets
+            if self.config.check_odds and price > self.config.max_odds:
+                return None
+            
+            # Check wallet age
+            wallet_age = None
+            if self.config.check_wallet_age:
+                wallet_age = self.blockchain.get_wallet_age_days(wallet)
+                
+                # If we can determine age and it's older than threshold, skip
+                # Unless it's a tracked wallet
+                if wallet_age is not None and wallet_age > self.config.wallet_age_days:
+                    if not self.is_tracked_wallet(wallet):
+                        return None
+            
+            # Build suspicious trade data
+            return {
+                "trade_id": trade.get('transactionHash', f"{wallet}_{trade.get('timestamp', '')}"),
+                "wallet_address": wallet,
+                "market_id": trade.get('conditionId', ''),
+                "market_question": trade.get('title', ''),
+                "market_category": trade.get('eventSlug', ''),
+                "bet_size": usd_value,
+                "outcome": trade.get('outcome', ''),
+                "side": side,
+                "odds": price,
+                "shares": size,
+                "timestamp": trade.get('timestamp'),
+                "transaction_hash": trade.get('transactionHash'),
+                "wallet_age_days": wallet_age,
+                # Include original trade data for reference
+                "proxyWallet": wallet,
+                "title": trade.get('title'),
+                "price": price,
+                "size": size
+            }
+            
         except Exception as e:
             logger.error(f"Error analyzing trade: {e}")
             return None
-
-    def scan_markets(self) -> int:
-        """Main scanning function. Returns number of suspicious trades found."""
-        logger.info("Starting market scan...")
-        suspicious_count = 0
-
-        markets = self.get_markets()
-
-        for market in markets:
+    
+    def save_suspicious_trade(self, trade_data: Dict) -> bool:
+        """Save suspicious trade to database"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                INSERT OR IGNORE INTO suspicious_trades 
+                (trade_id, wallet_address, market_id, market_question, market_category,
+                 bet_size, outcome, side, odds, shares, timestamp, transaction_hash,
+                 wallet_age_days, detected_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                trade_data["trade_id"],
+                trade_data["wallet_address"],
+                trade_data["market_id"],
+                trade_data["market_question"],
+                trade_data["market_category"],
+                trade_data["bet_size"],
+                trade_data["outcome"],
+                trade_data["side"],
+                trade_data["odds"],
+                trade_data["shares"],
+                trade_data["timestamp"],
+                trade_data.get("transaction_hash"),
+                trade_data["wallet_age_days"],
+                datetime.now().isoformat()
+            ))
+            
+            # Update wallet analysis
+            cursor.execute("""
+                INSERT INTO wallet_analysis 
+                (wallet_address, first_seen, total_bets, total_volume, suspicious_bets, last_updated)
+                VALUES (?, ?, 1, ?, 1, ?)
+                ON CONFLICT(wallet_address) DO UPDATE SET
+                    total_bets = total_bets + 1,
+                    total_volume = total_volume + ?,
+                    suspicious_bets = suspicious_bets + 1,
+                    last_updated = ?
+            """, (
+                trade_data["wallet_address"],
+                datetime.now().isoformat(),
+                trade_data["bet_size"],
+                datetime.now().isoformat(),
+                trade_data["bet_size"],
+                datetime.now().isoformat()
+            ))
+            
+            # Update tracked wallet if applicable
+            cursor.execute("""
+                UPDATE tracked_wallets 
+                SET total_alerts = total_alerts + 1, last_activity = ?
+                WHERE wallet_address = ?
+            """, (datetime.now().isoformat(), trade_data["wallet_address"]))
+            
+            conn.commit()
+            conn.close()
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error saving trade: {e}")
+            return False
+    
+    def scan_recent_trades(self, min_amount: float = None) -> Dict:
+        """
+        Scan recent trades using the Data API
+        
+        Uses filterType=CASH and filterAmount to get trades above threshold
+        """
+        logger.info("Starting trade scan...")
+        
+        stats = {
+            "trades_analyzed": 0,
+            "suspicious_found": 0,
+            "alerts_sent": 0
+        }
+        
+        try:
+            # Use the configured minimum or provided override
+            filter_amount = min_amount or self.config.min_bet_size
+            
+            # Fetch trades above the threshold
+            trades = self.api.get_trades(
+                filter_type="CASH",
+                filter_amount=filter_amount,
+                limit=500,
+                taker_only=True
+            )
+            
+            stats["trades_analyzed"] = len(trades)
+            logger.info(f"Fetched {len(trades)} trades above ${filter_amount:,.0f}")
+            
+            for trade in trades:
+                suspicious_data = self.analyze_trade(trade)
+                
+                if suspicious_data:
+                    stats["suspicious_found"] += 1
+                    logger.warning(f"Suspicious: {suspicious_data['wallet_address'][:16]}... ${suspicious_data['bet_size']:,.0f}")
+                    
+                    if self.save_suspicious_trade(suspicious_data):
+                        results = self.alert_manager.send_alert(suspicious_data)
+                        if any(results.values()):
+                            stats["alerts_sent"] += 1
+                            
+                            # Update alert status
+                            try:
+                                conn = sqlite3.connect(self.db_path)
+                                cursor = conn.cursor()
+                                cursor.execute("""
+                                    UPDATE suspicious_trades 
+                                    SET alerted = 1, alert_channels = ?
+                                    WHERE trade_id = ?
+                                """, (
+                                    ",".join(k for k, v in results.items() if v),
+                                    suspicious_data["trade_id"]
+                                ))
+                                conn.commit()
+                                conn.close()
+                            except:
+                                pass
+            
+            # Log scan
+            self._log_scan(stats)
+            
+            logger.info(f"Scan complete: {stats}")
+            return stats
+            
+        except Exception as e:
+            logger.error(f"Scan error: {e}")
+            return stats
+    
+    def scan_tracked_wallets(self) -> Dict:
+        """Scan activity for all tracked wallets"""
+        logger.info("Scanning tracked wallets...")
+        
+        stats = {
+            "wallets_checked": 0,
+            "trades_found": 0,
+            "suspicious_found": 0
+        }
+        
+        tracked = self.get_tracked_wallets()
+        
+        for wallet_info in tracked:
+            wallet = wallet_info['wallet_address']
+            stats["wallets_checked"] += 1
+            
             try:
-                market_id = market["market_id"]
-                logger.debug(f"Scanning market: {market['question'][:50]}...")
-
-                # Get current odds
-                current_odds = self.get_market_prices(market_id)
-                if not current_odds:
-                    continue
-
-                # Get recent trades
-                trades = self.get_trades(market_id)
-
-                for trade in trades:
-                    suspicious_data = self.analyze_trade(trade, market, current_odds)
-
+                # Get recent activity for this wallet
+                activity = self.api.get_user_activity(
+                    user=wallet,
+                    activity_type=["TRADE"],
+                    limit=50
+                )
+                
+                stats["trades_found"] += len(activity)
+                
+                for trade in activity:
+                    # Add proxyWallet if not present
+                    if 'proxyWallet' not in trade:
+                        trade['proxyWallet'] = wallet
+                    
+                    suspicious_data = self.analyze_trade(trade)
+                    
                     if suspicious_data:
-                        logger.warning(f"Suspicious trade: ${suspicious_data['bet_size']:,.0f} "
-                                       f"on {suspicious_data['outcome']} @ {suspicious_data['odds']*100:.1f}%")
-
-                        # Save to database
-                        if self.db.save_suspicious_trade(suspicious_data):
-                            suspicious_count += 1
-
-                            # Send alerts
-                            results = self.notifications.send_alert(suspicious_data)
-
-                            # Mark as alerted if any notification succeeded
-                            if any(results.values()):
-                                self.db.mark_trade_alerted(
-                                    suspicious_data["trade_id"],
-                                    ", ".join(k for k, v in results.items() if v)
-                                )
-
-                # Rate limiting
-                time.sleep(2)
-
+                        stats["suspicious_found"] += 1
+                        self.save_suspicious_trade(suspicious_data)
+                        self.alert_manager.send_alert(suspicious_data)
+                
+                time.sleep(0.5)  # Rate limiting
+                
             except Exception as e:
-                logger.error(f"Error scanning market {market.get('market_id')}: {e}")
+                logger.error(f"Error scanning wallet {wallet[:16]}: {e}")
                 continue
-
-        logger.info(f"Scan completed. Found {suspicious_count} suspicious trades.")
-        return suspicious_count
-
+        
+        logger.info(f"Tracked wallet scan complete: {stats}")
+        return stats
+    
+    def scan_markets(self, categories: List[str] = None) -> Dict:
+        """
+        Full scan: fetch markets, then get trades for each
+        This is slower but more comprehensive
+        """
+        logger.info("Starting full market scan...")
+        
+        stats = {
+            "markets_scanned": 0,
+            "trades_analyzed": 0,
+            "suspicious_found": 0,
+            "alerts_sent": 0
+        }
+        
+        try:
+            # Get active events
+            events = self.api.get_events(active=True, limit=100)
+            
+            for event in events:
+                markets = event.get("markets", [])
+                tags = [t.lower() for t in event.get("tags", [])]
+                
+                # Filter by categories if specified
+                if categories:
+                    if not any(cat.lower() in tags for cat in categories):
+                        continue
+                
+                for market in markets:
+                    condition_id = market.get("conditionId") or market.get("id")
+                    if not condition_id:
+                        continue
+                    
+                    stats["markets_scanned"] += 1
+                    
+                    # Get trades for this market
+                    trades = self.api.get_trades(
+                        market=condition_id,
+                        filter_type="CASH",
+                        filter_amount=self.config.min_bet_size,
+                        limit=100
+                    )
+                    
+                    stats["trades_analyzed"] += len(trades)
+                    
+                    for trade in trades:
+                        suspicious_data = self.analyze_trade(trade)
+                        
+                        if suspicious_data:
+                            stats["suspicious_found"] += 1
+                            
+                            if self.save_suspicious_trade(suspicious_data):
+                                results = self.alert_manager.send_alert(suspicious_data)
+                                if any(results.values()):
+                                    stats["alerts_sent"] += 1
+                    
+                    time.sleep(1)  # Rate limiting
+            
+            self._log_scan(stats)
+            logger.info(f"Full scan complete: {stats}")
+            return stats
+            
+        except Exception as e:
+            logger.error(f"Full scan error: {e}")
+            return stats
+    
+    def _log_scan(self, stats: Dict):
+        """Log scan to history"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                INSERT INTO scan_history 
+                (started_at, completed_at, markets_scanned, trades_analyzed, 
+                 suspicious_found, status)
+                VALUES (?, ?, ?, ?, ?, 'completed')
+            """, (
+                datetime.now().isoformat(),
+                datetime.now().isoformat(),
+                stats.get("markets_scanned", 0),
+                stats.get("trades_analyzed", 0),
+                stats.get("suspicious_found", 0)
+            ))
+            
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.error(f"Error logging scan: {e}")
+    
+    def get_suspicious_trades(self, limit: int = 100, offset: int = 0) -> List[Dict]:
+        """Get suspicious trades from database"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                SELECT * FROM suspicious_trades 
+                ORDER BY detected_at DESC 
+                LIMIT ? OFFSET ?
+            """, (limit, offset))
+            
+            columns = [d[0] for d in cursor.description]
+            trades = [dict(zip(columns, row)) for row in cursor.fetchall()]
+            conn.close()
+            return trades
+            
+        except Exception as e:
+            logger.error(f"Error fetching trades: {e}")
+            return []
+    
+    def get_wallet_stats(self, wallet_address: str) -> Optional[Dict]:
+        """Get stats for a wallet"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute(
+                "SELECT * FROM wallet_analysis WHERE wallet_address = ?",
+                (wallet_address.lower(),)
+            )
+            row = cursor.fetchone()
+            
+            if row:
+                columns = [d[0] for d in cursor.description]
+                stats = dict(zip(columns, row))
+                
+                # Get trades
+                cursor.execute("""
+                    SELECT * FROM suspicious_trades 
+                    WHERE wallet_address = ?
+                    ORDER BY timestamp DESC
+                """, (wallet_address.lower(),))
+                
+                trade_cols = [d[0] for d in cursor.description]
+                stats["trades"] = [dict(zip(trade_cols, r)) for r in cursor.fetchall()]
+                
+                # Check if tracked
+                cursor.execute(
+                    "SELECT * FROM tracked_wallets WHERE wallet_address = ?",
+                    (wallet_address.lower(),)
+                )
+                tracked = cursor.fetchone()
+                stats["is_tracked"] = tracked is not None
+                
+                conn.close()
+                return stats
+            
+            conn.close()
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error fetching wallet stats: {e}")
+            return None
+    
+    def get_dashboard_stats(self) -> Dict:
+        """Get aggregate stats for dashboard"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            stats = {}
+            
+            cursor.execute("SELECT COUNT(*) FROM suspicious_trades")
+            stats["total_suspicious"] = cursor.fetchone()[0]
+            
+            cursor.execute("SELECT COUNT(DISTINCT wallet_address) FROM suspicious_trades")
+            stats["unique_wallets"] = cursor.fetchone()[0]
+            
+            cursor.execute("SELECT COALESCE(SUM(bet_size), 0) FROM suspicious_trades")
+            stats["total_volume"] = cursor.fetchone()[0]
+            
+            cursor.execute("SELECT COUNT(*) FROM suspicious_trades WHERE alerted = 1")
+            stats["alerts_sent"] = cursor.fetchone()[0]
+            
+            cursor.execute("SELECT COUNT(*) FROM tracked_wallets WHERE active = 1")
+            stats["tracked_wallets"] = cursor.fetchone()[0]
+            
+            today = datetime.now().date().isoformat()
+            cursor.execute(
+                "SELECT COUNT(*) FROM suspicious_trades WHERE DATE(detected_at) = ?",
+                (today,)
+            )
+            stats["today_suspicious"] = cursor.fetchone()[0]
+            
+            # Weekly trend
+            week_ago = (datetime.now() - timedelta(days=7)).isoformat()
+            cursor.execute("""
+                SELECT DATE(detected_at) as date, COUNT(*) as count
+                FROM suspicious_trades 
+                WHERE detected_at >= ?
+                GROUP BY DATE(detected_at)
+                ORDER BY date
+            """, (week_ago,))
+            stats["weekly_trend"] = [
+                {"date": row[0], "count": row[1]} 
+                for row in cursor.fetchall()
+            ]
+            
+            # Top wallets
+            cursor.execute("""
+                SELECT wallet_address, COUNT(*) as count, SUM(bet_size) as volume
+                FROM suspicious_trades
+                GROUP BY wallet_address
+                ORDER BY count DESC
+                LIMIT 10
+            """)
+            stats["top_wallets"] = [
+                {"wallet": row[0], "count": row[1], "volume": row[2]}
+                for row in cursor.fetchall()
+            ]
+            
+            conn.close()
+            return stats
+            
+        except Exception as e:
+            logger.error(f"Error fetching stats: {e}")
+            return {}
+    
     def run_continuous(self, interval_minutes: int = 5):
         """Run continuous monitoring"""
-        logger.info(f"Starting continuous monitoring (interval: {interval_minutes} minutes)")
-
+        logger.info(f"Starting continuous monitoring (interval: {interval_minutes} min)")
+        
         while True:
             try:
-                self.scan_markets()
-                logger.info(f"Sleeping for {interval_minutes} minutes...")
+                # Quick scan of recent large trades
+                self.scan_recent_trades()
+                
+                # Scan tracked wallets
+                self.scan_tracked_wallets()
+                
+                logger.info(f"Sleeping {interval_minutes} minutes...")
                 time.sleep(interval_minutes * 60)
-
+                
             except KeyboardInterrupt:
-                logger.info("Monitoring stopped by user")
+                logger.info("Stopped by user")
                 break
             except Exception as e:
-                logger.error(f"Error in continuous monitoring: {e}")
-                time.sleep(60)  # Wait 1 minute before retrying
-
-    # =========================================================================
-    # Helper methods for external access
-    # =========================================================================
-
-    def get_suspicious_trades(self, limit: int = 100) -> List[Dict]:
-        """Get recent suspicious trades from database"""
-        return self.db.get_suspicious_trades(limit)
-
-    def get_wallet_stats(self, wallet_address: str) -> Optional[Dict]:
-        """Get statistics for a specific wallet"""
-        return self.db.get_wallet_stats(wallet_address)
-
-    def add_monitored_wallet(self, wallet_address: str, label: str = None,
-                             notes: str = None) -> bool:
-        """Add a wallet to monitoring list"""
-        return self.db.add_monitored_wallet(wallet_address, label, notes)
-
-    def remove_monitored_wallet(self, wallet_address: str) -> bool:
-        """Remove a wallet from monitoring list"""
-        return self.db.remove_monitored_wallet(wallet_address)
-
-    def get_monitored_wallets(self) -> List[Dict]:
-        """Get list of monitored wallets"""
-        return self.db.get_monitored_wallets()
+                logger.error(f"Error: {e}")
+                time.sleep(60)
 
 
 if __name__ == "__main__":
     # Example usage
-    monitor = PolymarketMonitor()
-
-    # Run a single scan
-    monitor.scan_markets()
-
-    # Or run continuous monitoring
-    # monitor.run_continuous(interval_minutes=5)
+    config = DetectionConfig(
+        wallet_age_days=14,
+        min_bet_size=10000,
+        max_odds=0.10
+    )
+    
+    monitor = PolymarketMonitor(config=config)
+    
+    # Quick scan of recent trades
+    monitor.scan_recent_trades()
