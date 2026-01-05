@@ -208,6 +208,45 @@ with st.sidebar:
     
     st.divider()
     
+    # Connection Test
+    st.subheader("🔌 Connection Test")
+    if st.button("Test API Connection", use_container_width=True):
+        if st.session_state.monitor:
+            with st.spinner("Testing connection..."):
+                test_results = st.session_state.monitor.test_connection()
+                
+                if test_results.get("gamma_api"):
+                    st.success(f"✅ Gamma API: OK (Status {test_results.get('gamma_status')})")
+                else:
+                    st.error(f"❌ Gamma API: Failed (Status {test_results.get('gamma_status')})")
+                
+                if test_results.get("clob_api"):
+                    st.success(f"✅ CLOB API: OK (Status {test_results.get('clob_status')})")
+                else:
+                    if test_results.get("clob_status"):
+                        st.warning(f"⚠️ CLOB API: Status {test_results.get('clob_status')}")
+                    else:
+                        st.info("ℹ️ CLOB API: Not tested")
+                
+                # Show details
+                if test_results.get("details"):
+                    for detail in test_results["details"]:
+                        st.caption(detail)
+                
+                if test_results.get("error"):
+                    st.error(f"Error: {test_results['error']}")
+                    
+                # Show fix suggestions
+                if not test_results.get("gamma_api"):
+                    st.warning("💡 Gamma API failed. This is the main data source. Check:")
+                    st.caption("• Internet connection")
+                    st.caption("• Polymarket API status")
+                    st.caption("• Try again in a few minutes")
+        else:
+            st.warning("Initialize monitor first")
+    
+    st.divider()
+    
     # Scan controls
     st.subheader("🔍 Scanning")
     auto_refresh = st.checkbox("Auto Refresh (30s)", value=False)
