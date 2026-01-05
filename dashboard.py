@@ -236,7 +236,21 @@ st.markdown("""
     hr {
         border-color: rgba(100, 116, 139, 0.2);
     }
-    
+
+    /* Fix Streamlit info/alert boxes text color for dark theme */
+    .stAlert > div {
+        color: #f1f5f9 !important;
+    }
+
+    .stAlert p, .stAlert li, .stAlert span {
+        color: #f1f5f9 !important;
+    }
+
+    /* Make all text in main content area readable */
+    .stMarkdown, .stMarkdown p, .stMarkdown li, .stMarkdown span {
+        color: #e2e8f0;
+    }
+
     /* Risk level indicators */
     .risk-critical {
         color: #ef4444;
