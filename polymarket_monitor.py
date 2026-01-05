@@ -86,6 +86,56 @@ class PolymarketMonitor:
             self.headers["Authorization"] = f"Bearer {self.api_key}"
             logger.info("API key configured - using authenticated requests")
     
+    def test_connection(self) -> Dict:
+        """Test API connectivity and return diagnostics"""
+        results = {
+            "gamma_api": False,
+            "clob_api": False,
+            "error": None,
+            "details": []
+        }
+        
+        try:
+            # Test Gamma API - events endpoint
+            url = f"{self.GAMMA_URL}/events"
+            params = {"active": "true", "closed": "false", "limit": 1}
+            
+            response = requests.get(url, params=params, timeout=10)
+            results["gamma_api"] = response.status_code == 200
+            results["gamma_status"] = response.status_code
+            
+            if response.status_code == 200:
+                data = response.json()
+                results["details"].append(f"Gamma API: Found {len(data)} events")
+            else:
+                results["error"] = f"Gamma API returned {response.status_code}: {response.text[:200]}"
+            
+            # Test CLOB API - use a sample token ID if available
+            if response.status_code == 200 and len(data) > 0:
+                # Try to get first market's token ID
+                first_event = data[0]
+                first_market = first_event.get("markets", [{}])[0]
+                token_ids = first_market.get("clobTokenIds", [])
+                
+                if token_ids:
+                    url2 = f"{self.BASE_URL}/price"
+                    params2 = {"token_id": token_ids[0], "side": "buy"}
+                    response2 = requests.get(url2, params=params2, timeout=10)
+                    results["clob_api"] = response2.status_code == 200
+                    results["clob_status"] = response2.status_code
+                    
+                    if response2.status_code == 200:
+                        price_data = response2.json()
+                        results["details"].append(f"CLOB API: Price fetch successful ({price_data.get('price', 'N/A')})")
+                else:
+                    results["details"].append("CLOB API: No token IDs to test")
+            
+        except Exception as e:
+            results["error"] = str(e)
+            logger.error(f"Connection test failed: {e}")
+        
+        return results
+    
     def init_database(self):
         """Initialize SQLite database"""
         conn = sqlite3.connect(self.db_path)
@@ -136,41 +186,55 @@ class PolymarketMonitor:
         logger.info("Database initialized")
     
     def get_markets(self, active_only: bool = True) -> List[Dict]:
-        """Fetch markets from Polymarket"""
+        """Fetch markets from Polymarket using official API"""
         try:
+            # Use the correct endpoint with proper parameters
             url = f"{self.GAMMA_URL}/events"
-            params = {"active": "true"} if active_only else {}
+            params = {
+                "active": "true" if active_only else "false",
+                "closed": "false",  # Only get open markets
+                "limit": 100  # Get more markets per request
+            }
             
-            response = requests.get(url, params=params, headers=self.headers, timeout=30)
+            logger.info(f"Fetching markets from {url} with params {params}")
+            response = requests.get(url, params=params, timeout=30)
+            
+            logger.info(f"Response status: {response.status_code}")
             
             if response.status_code == 200:
-                data = response.json()
+                events = response.json()
                 markets = []
                 
-                # Filter for News and Crypto categories
-                for event in data:
-                    markets_list = event.get("markets", [])
-                    for market in markets_list:
-                        # Check if market is in desired categories
-                        tags = [tag.lower() for tag in event.get("tags", [])]
-                        if any(cat in tags for cat in ["news", "crypto", "cryptocurrency", "politics"]):
+                # Process events and extract markets
+                for event in events:
+                    # Get tags for filtering
+                    tags = event.get("tags", [])
+                    tag_labels = [tag.get("label", "").lower() for tag in tags]
+                    
+                    # Filter for News and Crypto categories
+                    if any(cat in tag_labels for cat in ["news", "crypto", "cryptocurrency", "politics"]):
+                        # Each event can have multiple markets
+                        event_markets = event.get("markets", [])
+                        
+                        for market in event_markets:
                             market_data = {
                                 "market_id": market.get("id"),
                                 "question": market.get("question"),
-                                "category": ", ".join(event.get("tags", [])),
-                                "active": market.get("active", True)
+                                "category": ", ".join([tag.get("label", "") for tag in tags]),
+                                "active": market.get("active", True),
+                                "clob_token_ids": market.get("clobTokenIds", [])
                             }
                             markets.append(market_data)
                             self.cache_market(market_data)
                 
-                logger.info(f"Fetched {len(markets)} markets in News/Crypto categories")
+                logger.info(f"Fetched {len(markets)} markets in News/Crypto categories from {len(events)} events")
                 return markets
             else:
-                logger.error(f"Failed to fetch markets: {response.status_code}")
+                logger.error(f"Failed to fetch markets: {response.status_code} - {response.text[:500]}")
                 return []
                 
         except Exception as e:
-            logger.error(f"Error fetching markets: {e}")
+            logger.error(f"Error fetching markets: {e}", exc_info=True)
             return []
     
     def cache_market(self, market_data: Dict):
@@ -214,27 +278,62 @@ class PolymarketMonitor:
             logger.error(f"Error fetching trades: {e}")
             return []
     
-    def get_market_prices(self, market_id: str) -> Dict:
-        """Get current market prices/odds"""
+    def get_market_prices(self, market_id: str, clob_token_ids: List[str] = None) -> Dict:
+        """Get current market prices/odds using CLOB API"""
         try:
-            url = f"{self.GAMMA_URL}/markets/{market_id}"
+            prices = {}
             
-            response = requests.get(url, headers=self.headers, timeout=30)
-            
-            if response.status_code == 200:
-                data = response.json()
-                # Extract current odds for YES/NO outcomes
-                tokens = data.get("tokens", [])
-                prices = {}
+            # If we have clob token IDs, use them to get prices
+            if clob_token_ids and len(clob_token_ids) >= 2:
+                # Get price for YES token (index 0)
+                url_yes = f"{self.BASE_URL}/price"
+                params_yes = {
+                    "token_id": clob_token_ids[0],
+                    "side": "buy"
+                }
                 
-                for token in tokens:
-                    outcome = token.get("outcome")
-                    price = float(token.get("price", 0))
-                    prices[outcome] = price
+                response_yes = requests.get(url_yes, params=params_yes, timeout=10)
+                if response_yes.status_code == 200:
+                    data_yes = response_yes.json()
+                    prices["YES"] = float(data_yes.get("price", 0))
                 
-                return prices
+                # Get price for NO token (index 1)
+                url_no = f"{self.BASE_URL}/price"
+                params_no = {
+                    "token_id": clob_token_ids[1],
+                    "side": "buy"
+                }
+                
+                response_no = requests.get(url_no, params=params_no, timeout=10)
+                if response_no.status_code == 200:
+                    data_no = response_no.json()
+                    prices["NO"] = float(data_no.get("price", 0))
+                
+                logger.info(f"Fetched prices for market {market_id}: {prices}")
             else:
-                return {}
+                # Fallback: try to get from Gamma API
+                url = f"{self.GAMMA_URL}/markets/{market_id}"
+                response = requests.get(url, timeout=30)
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    # Parse outcome prices
+                    outcomes_str = data.get("outcomes", "[]")
+                    prices_str = data.get("outcomePrices", "[]")
+                    
+                    try:
+                        import json
+                        outcomes = json.loads(outcomes_str)
+                        outcome_prices = json.loads(prices_str)
+                        
+                        # Map outcomes to prices
+                        for i, outcome in enumerate(outcomes):
+                            if i < len(outcome_prices):
+                                prices[outcome] = float(outcome_prices[i])
+                    except:
+                        pass
+            
+            return prices
                 
         except Exception as e:
             logger.error(f"Error fetching market prices: {e}")
@@ -407,10 +506,11 @@ class PolymarketMonitor:
         for market in markets:
             try:
                 market_id = market["market_id"]
+                clob_token_ids = market.get("clob_token_ids", [])
                 logger.info(f"Scanning market: {market['question']}")
                 
                 # Get current odds
-                current_odds = self.get_market_prices(market_id)
+                current_odds = self.get_market_prices(market_id, clob_token_ids)
                 
                 # Get recent trades
                 trades = self.get_trades(market_id)
