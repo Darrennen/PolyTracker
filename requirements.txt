@@ -12,9 +12,8 @@ pandas>=1.5.0
 # Visualization
 plotly>=5.15.0
 
-# Configuration (for planned features)
-pyyaml>=6.0
+# Configuration
 python-dotenv>=1.0.0
 
-# Retry logic (for planned features)
-tenacity>=8.2.0
+# PostgreSQL support (for Railway)
+psycopg2-binary>=2.9.0

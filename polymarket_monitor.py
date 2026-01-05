@@ -1,10 +1,18 @@
+"""
+PolyTracker - Polymarket Suspicious Activity Monitor
+Detects suspicious betting patterns on Polymarket prediction markets.
+"""
+
 import requests
-import sqlite3
 import time
-import json
-from datetime import datetime, timedelta
+import os
+from datetime import datetime
 from typing import List, Dict, Optional
 import logging
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(
@@ -13,147 +21,229 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Import database layer
+from database import Database
+
 
 class PolygonRPC:
-    """Helper class to interact with Polygon blockchain"""
-    
-    def __init__(self, rpc_url: str = "https://polygon-rpc.com"):
-        self.rpc_url = rpc_url
-    
+    """Helper class to get wallet age from Polygonscan"""
+
+    def __init__(self, api_key: str = None):
+        self.api_key = api_key or os.getenv("POLYGONSCAN_API_KEY")
+        self.base_url = "https://api.polygonscan.com/api"
+
     def get_wallet_age_days(self, wallet_address: str) -> Optional[int]:
-        """Get the age of a wallet in days"""
-        try:
-            # Get the first transaction of the wallet
-            payload = {
-                "jsonrpc": "2.0",
-                "method": "eth_getTransactionCount",
-                "params": [wallet_address, "earliest"],
-                "id": 1
-            }
-            
-            response = requests.post(self.rpc_url, json=payload, timeout=10)
-            
-            if response.status_code == 200:
-                # For simplicity, we'll use block number as proxy
-                # In production, you'd want to get actual block timestamp
-                current_time = datetime.now()
-                
-                # Get latest block to calculate approximate age
-                # This is simplified - you'd want to fetch actual first tx timestamp
-                latest_payload = {
-                    "jsonrpc": "2.0",
-                    "method": "eth_blockNumber",
-                    "params": [],
-                    "id": 2
-                }
-                latest_response = requests.post(self.rpc_url, json=latest_payload, timeout=10)
-                
-                if latest_response.status_code == 200:
-                    # Simplified calculation - assumes ~2 seconds per block on Polygon
-                    # You should improve this with actual timestamp queries
-                    return None  # Placeholder for actual implementation
-                
+        """Get the age of a wallet in days using Polygonscan API"""
+        if not self.api_key:
+            logger.warning("No Polygonscan API key - wallet age detection disabled")
             return None
+
+        try:
+            params = {
+                "module": "account",
+                "action": "txlist",
+                "address": wallet_address,
+                "startblock": 0,
+                "endblock": 99999999,
+                "page": 1,
+                "offset": 1,  # Only need first transaction
+                "sort": "asc",
+                "apikey": self.api_key
+            }
+
+            response = requests.get(self.base_url, params=params, timeout=10)
+
+            if response.status_code == 200:
+                data = response.json()
+                if data.get("status") == "1" and data.get("result"):
+                    first_tx = data["result"][0]
+                    first_tx_time = int(first_tx.get("timeStamp", 0))
+                    if first_tx_time > 0:
+                        wallet_created = datetime.fromtimestamp(first_tx_time)
+                        age_days = (datetime.now() - wallet_created).days
+                        return age_days
+
+            return None
+
         except Exception as e:
             logger.error(f"Error getting wallet age: {e}")
             return None
 
 
+class NotificationManager:
+    """Handles sending alerts via Telegram and Slack"""
+
+    def __init__(self, telegram_token: str = None, telegram_chat_id: str = None,
+                 slack_webhook_url: str = None):
+        self.telegram_token = telegram_token or os.getenv("TELEGRAM_BOT_TOKEN")
+        self.telegram_chat_id = telegram_chat_id or os.getenv("TELEGRAM_CHAT_ID")
+        self.slack_webhook_url = slack_webhook_url or os.getenv("SLACK_WEBHOOK_URL")
+
+    def send_telegram(self, data: Dict) -> bool:
+        """Send alert via Telegram"""
+        if not self.telegram_token or not self.telegram_chat_id:
+            return False
+
+        try:
+            message = f"""
+🚨 *SUSPICIOUS ACTIVITY DETECTED* 🚨
+
+*Market:* {data['market_question'][:100]}
+*Category:* {data['market_category']}
+
+*Wallet:* `{data['wallet_address']}`
+*Wallet Age:* {data.get('wallet_age_days') or 'Unknown'} days
+
+*Bet Details:*
+• Size: ${data['bet_size']:,.2f}
+• Outcome: {data['outcome']}
+• Odds: {data['odds']*100:.1f}%
+
+[View on Polygonscan](https://polygonscan.com/address/{data['wallet_address']})
+            """
+
+            url = f"https://api.telegram.org/bot{self.telegram_token}/sendMessage"
+            payload = {
+                "chat_id": self.telegram_chat_id,
+                "text": message,
+                "parse_mode": "Markdown",
+                "disable_web_page_preview": True
+            }
+
+            response = requests.post(url, json=payload, timeout=10)
+            if response.status_code == 200:
+                logger.info(f"Telegram alert sent for trade {data.get('trade_id')}")
+                return True
+            else:
+                logger.error(f"Telegram error: {response.status_code} - {response.text}")
+                return False
+
+        except Exception as e:
+            logger.error(f"Error sending Telegram alert: {e}")
+            return False
+
+    def send_slack(self, data: Dict) -> bool:
+        """Send alert via Slack webhook"""
+        if not self.slack_webhook_url:
+            return False
+
+        try:
+            blocks = [
+                {
+                    "type": "header",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "🚨 Suspicious Activity Detected",
+                        "emoji": True
+                    }
+                },
+                {
+                    "type": "section",
+                    "fields": [
+                        {"type": "mrkdwn", "text": f"*Market:*\n{data['market_question'][:50]}..."},
+                        {"type": "mrkdwn", "text": f"*Category:*\n{data['market_category']}"},
+                        {"type": "mrkdwn", "text": f"*Wallet:*\n`{data['wallet_address'][:10]}...`"},
+                        {"type": "mrkdwn", "text": f"*Wallet Age:*\n{data.get('wallet_age_days') or 'Unknown'} days"},
+                        {"type": "mrkdwn", "text": f"*Bet Size:*\n${data['bet_size']:,.2f}"},
+                        {"type": "mrkdwn", "text": f"*Position:*\n{data['outcome']} @ {data['odds']*100:.1f}%"}
+                    ]
+                },
+                {
+                    "type": "actions",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "View on Polygonscan"},
+                            "url": f"https://polygonscan.com/address/{data['wallet_address']}"
+                        }
+                    ]
+                }
+            ]
+
+            payload = {"blocks": blocks}
+            response = requests.post(self.slack_webhook_url, json=payload, timeout=10)
+
+            if response.status_code == 200:
+                logger.info(f"Slack alert sent for trade {data.get('trade_id')}")
+                return True
+            else:
+                logger.error(f"Slack error: {response.status_code}")
+                return False
+
+        except Exception as e:
+            logger.error(f"Error sending Slack alert: {e}")
+            return False
+
+    def send_alert(self, data: Dict) -> Dict[str, bool]:
+        """Send alerts to all configured channels"""
+        results = {}
+        results["telegram"] = self.send_telegram(data)
+        results["slack"] = self.send_slack(data)
+        return results
+
+
 class PolymarketMonitor:
     """Main monitoring class for Polymarket suspicious activity"""
-    
+
     BASE_URL = "https://clob.polymarket.com"
     GAMMA_URL = "https://gamma-api.polymarket.com"
-    
-    # Detection thresholds
-    WALLET_AGE_DAYS = 30  # Less than 30 days
-    MIN_BET_SIZE = 10000  # More than $10k
-    MAX_ODDS = 0.20  # Less than 20% probability
-    
-    def __init__(self, db_path: str = "polymarket_monitor.db", telegram_token: str = None, telegram_chat_id: str = None, api_key: str = None):
-        self.db_path = db_path
-        self.telegram_token = telegram_token
-        self.telegram_chat_id = telegram_chat_id
-        self.api_key = api_key
-        self.polygon_rpc = PolygonRPC()
-        self.init_database()
-        
-        # Setup API headers
-        self.headers = {
-            "Content-Type": "application/json"
-        }
+
+    # Default detection thresholds (can be overridden)
+    WALLET_AGE_DAYS = int(os.getenv("WALLET_AGE_DAYS", 30))
+    MIN_BET_SIZE = float(os.getenv("MIN_BET_SIZE", 10000))
+    MAX_ODDS = float(os.getenv("MAX_ODDS", 0.20))
+
+    # Categories to monitor
+    DEFAULT_CATEGORIES = ["news", "crypto", "cryptocurrency", "politics", "sports"]
+
+    def __init__(self, db_path: str = "polymarket_monitor.db",
+                 telegram_token: str = None, telegram_chat_id: str = None,
+                 slack_webhook_url: str = None, api_key: str = None,
+                 categories: List[str] = None):
+
+        # Database
+        self.db = Database(db_path)
+
+        # API configuration
+        self.api_key = api_key or os.getenv("POLYMARKET_API_KEY")
+        self.headers = {"Content-Type": "application/json"}
         if self.api_key:
             self.headers["Authorization"] = f"Bearer {self.api_key}"
             logger.info("API key configured - using authenticated requests")
-    
-    def init_database(self):
-        """Initialize SQLite database"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        # Create tables
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS suspicious_trades (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                trade_id TEXT UNIQUE,
-                wallet_address TEXT,
-                market_id TEXT,
-                market_question TEXT,
-                market_category TEXT,
-                bet_size REAL,
-                outcome TEXT,
-                odds REAL,
-                timestamp TEXT,
-                wallet_age_days INTEGER,
-                detected_at TEXT,
-                alerted INTEGER DEFAULT 0
-            )
-        """)
-        
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS markets_cache (
-                market_id TEXT PRIMARY KEY,
-                question TEXT,
-                category TEXT,
-                active INTEGER,
-                cached_at TEXT
-            )
-        """)
-        
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS wallet_analysis (
-                wallet_address TEXT PRIMARY KEY,
-                first_seen TEXT,
-                total_bets INTEGER,
-                total_volume REAL,
-                suspicious_bets INTEGER,
-                last_updated TEXT
-            )
-        """)
-        
-        conn.commit()
-        conn.close()
-        logger.info("Database initialized")
-    
+
+        # Wallet age checker
+        self.polygon_rpc = PolygonRPC()
+
+        # Notifications
+        self.notifications = NotificationManager(
+            telegram_token=telegram_token,
+            telegram_chat_id=telegram_chat_id,
+            slack_webhook_url=slack_webhook_url
+        )
+
+        # Categories to monitor
+        self.categories = categories or self.DEFAULT_CATEGORIES
+
+        logger.info(f"Monitor initialized - Thresholds: age<{self.WALLET_AGE_DAYS}d, "
+                    f"bet>${self.MIN_BET_SIZE:,}, odds<{self.MAX_ODDS*100}%")
+
     def get_markets(self, active_only: bool = True) -> List[Dict]:
         """Fetch markets from Polymarket"""
         try:
             url = f"{self.GAMMA_URL}/events"
             params = {"active": "true"} if active_only else {}
-            
-            response = requests.get(url, params=params, headers=self.headers, timeout=30)
-            
-            if response.status_code == 200:
+
+            response = self._make_request("GET", url, params=params)
+
+            if response and response.status_code == 200:
                 data = response.json()
                 markets = []
-                
-                # Filter for News and Crypto categories
+
                 for event in data:
                     markets_list = event.get("markets", [])
                     for market in markets_list:
-                        # Check if market is in desired categories
                         tags = [tag.lower() for tag in event.get("tags", [])]
-                        if any(cat in tags for cat in ["news", "crypto", "cryptocurrency", "politics"]):
+                        if any(cat in tags for cat in self.categories):
                             market_data = {
                                 "market_id": market.get("id"),
                                 "question": market.get("question"),
@@ -161,116 +251,139 @@ class PolymarketMonitor:
                                 "active": market.get("active", True)
                             }
                             markets.append(market_data)
-                            self.cache_market(market_data)
-                
-                logger.info(f"Fetched {len(markets)} markets in News/Crypto categories")
+                            self.db.cache_market(market_data)
+
+                logger.info(f"Fetched {len(markets)} markets in monitored categories")
                 return markets
-            else:
-                logger.error(f"Failed to fetch markets: {response.status_code}")
-                return []
-                
+
+            return []
+
         except Exception as e:
             logger.error(f"Error fetching markets: {e}")
             return []
-    
-    def cache_market(self, market_data: Dict):
-        """Cache market data in database"""
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            
-            cursor.execute("""
-                INSERT OR REPLACE INTO markets_cache (market_id, question, category, active, cached_at)
-                VALUES (?, ?, ?, ?, ?)
-            """, (
-                market_data["market_id"],
-                market_data["question"],
-                market_data["category"],
-                1 if market_data["active"] else 0,
-                datetime.now().isoformat()
-            ))
-            
-            conn.commit()
-            conn.close()
-        except Exception as e:
-            logger.error(f"Error caching market: {e}")
-    
+
     def get_trades(self, market_id: str) -> List[Dict]:
         """Fetch recent trades for a specific market"""
         try:
             url = f"{self.BASE_URL}/trades"
             params = {"market": market_id}
-            
-            response = requests.get(url, params=params, headers=self.headers, timeout=30)
-            
-            if response.status_code == 200:
-                trades = response.json()
-                return trades
-            else:
-                logger.warning(f"Failed to fetch trades for market {market_id}: {response.status_code}")
-                return []
-                
+
+            response = self._make_request("GET", url, params=params)
+
+            if response and response.status_code == 200:
+                return response.json()
+
+            return []
+
         except Exception as e:
             logger.error(f"Error fetching trades: {e}")
             return []
-    
+
     def get_market_prices(self, market_id: str) -> Dict:
         """Get current market prices/odds"""
         try:
             url = f"{self.GAMMA_URL}/markets/{market_id}"
-            
-            response = requests.get(url, headers=self.headers, timeout=30)
-            
-            if response.status_code == 200:
+
+            response = self._make_request("GET", url)
+
+            if response and response.status_code == 200:
                 data = response.json()
-                # Extract current odds for YES/NO outcomes
                 tokens = data.get("tokens", [])
                 prices = {}
-                
+
                 for token in tokens:
                     outcome = token.get("outcome")
                     price = float(token.get("price", 0))
                     prices[outcome] = price
-                
+
                 return prices
-            else:
-                return {}
-                
+
+            return {}
+
         except Exception as e:
             logger.error(f"Error fetching market prices: {e}")
             return {}
-    
+
+    def _make_request(self, method: str, url: str, **kwargs) -> Optional[requests.Response]:
+        """Make HTTP request with retry logic"""
+        max_retries = 3
+        backoff = 2
+
+        for attempt in range(max_retries):
+            try:
+                kwargs.setdefault("headers", self.headers)
+                kwargs.setdefault("timeout", 30)
+
+                if method == "GET":
+                    response = requests.get(url, **kwargs)
+                else:
+                    response = requests.post(url, **kwargs)
+
+                if response.status_code == 429:  # Rate limited
+                    wait_time = backoff ** attempt
+                    logger.warning(f"Rate limited, waiting {wait_time}s...")
+                    time.sleep(wait_time)
+                    continue
+
+                return response
+
+            except requests.exceptions.RequestException as e:
+                logger.error(f"Request error (attempt {attempt + 1}): {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(backoff ** attempt)
+
+        return None
+
     def analyze_trade(self, trade: Dict, market_data: Dict, current_odds: Dict) -> Optional[Dict]:
         """Analyze a trade for suspicious patterns"""
         try:
             wallet_address = trade.get("maker_address") or trade.get("taker_address")
             if not wallet_address:
                 return None
-            
+
+            trade_id = trade.get("id")
+
+            # Skip if already processed
+            if self.db.trade_exists(trade_id):
+                return None
+
             # Get trade details
             size = float(trade.get("size", 0))
             price = float(trade.get("price", 0))
             bet_value = size * price
-            
             outcome = trade.get("outcome")
-            
-            # Check if bet size meets threshold
-            if bet_value < self.MIN_BET_SIZE:
-                return None
-            
-            # Check if odds meet threshold (betting on unlikely outcome)
-            odds = current_odds.get(outcome, 1.0)
-            if odds > self.MAX_ODDS:
-                return None
-            
-            # TODO: Get actual wallet age from blockchain
-            # For now, we'll mark it as suspicious if we can't determine age
+
+            # Check if wallet is monitored (bypass thresholds)
+            is_monitored = self.db.is_wallet_monitored(wallet_address)
+
+            if not is_monitored:
+                # Apply normal threshold checks
+                if bet_value < self.MIN_BET_SIZE:
+                    return None
+
+                odds = current_odds.get(outcome, 1.0)
+                if odds > self.MAX_ODDS:
+                    return None
+            else:
+                odds = current_odds.get(outcome, 1.0)
+
+            # Get wallet age
             wallet_age = self.polygon_rpc.get_wallet_age_days(wallet_address)
-            
-            # If we can't determine age or it's within threshold, flag it
-            if wallet_age is None or wallet_age < self.WALLET_AGE_DAYS:
-                suspicious_data = {
-                    "trade_id": trade.get("id"),
+
+            # Determine if suspicious
+            is_suspicious = False
+            detection_source = "automatic"
+
+            if is_monitored:
+                is_suspicious = True
+                detection_source = "monitored_wallet"
+            elif wallet_age is None or wallet_age < self.WALLET_AGE_DAYS:
+                is_suspicious = True
+                detection_source = "automatic"
+
+            if is_suspicious:
+                return {
+                    "trade_id": trade_id,
                     "wallet_address": wallet_address,
                     "market_id": market_data["market_id"],
                     "market_question": market_data["question"],
@@ -279,236 +392,77 @@ class PolymarketMonitor:
                     "outcome": outcome,
                     "odds": odds,
                     "timestamp": trade.get("timestamp"),
-                    "wallet_age_days": wallet_age
+                    "wallet_age_days": wallet_age,
+                    "detection_source": detection_source
                 }
-                
-                return suspicious_data
-            
+
             return None
-            
+
         except Exception as e:
             logger.error(f"Error analyzing trade: {e}")
             return None
-    
-    def save_suspicious_trade(self, suspicious_data: Dict):
-        """Save suspicious trade to database"""
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            
-            cursor.execute("""
-                INSERT OR IGNORE INTO suspicious_trades 
-                (trade_id, wallet_address, market_id, market_question, market_category,
-                 bet_size, outcome, odds, timestamp, wallet_age_days, detected_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                suspicious_data["trade_id"],
-                suspicious_data["wallet_address"],
-                suspicious_data["market_id"],
-                suspicious_data["market_question"],
-                suspicious_data["market_category"],
-                suspicious_data["bet_size"],
-                suspicious_data["outcome"],
-                suspicious_data["odds"],
-                suspicious_data["timestamp"],
-                suspicious_data["wallet_age_days"],
-                datetime.now().isoformat()
-            ))
-            
-            # Update wallet analysis
-            cursor.execute("""
-                INSERT INTO wallet_analysis (wallet_address, first_seen, total_bets, total_volume, suspicious_bets, last_updated)
-                VALUES (?, ?, 1, ?, 1, ?)
-                ON CONFLICT(wallet_address) DO UPDATE SET
-                    total_bets = total_bets + 1,
-                    total_volume = total_volume + ?,
-                    suspicious_bets = suspicious_bets + 1,
-                    last_updated = ?
-            """, (
-                suspicious_data["wallet_address"],
-                datetime.now().isoformat(),
-                suspicious_data["bet_size"],
-                datetime.now().isoformat(),
-                suspicious_data["bet_size"],
-                datetime.now().isoformat()
-            ))
-            
-            conn.commit()
-            conn.close()
-            
-            logger.info(f"Saved suspicious trade: {suspicious_data['trade_id']}")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Error saving suspicious trade: {e}")
-            return False
-    
-    def send_telegram_alert(self, suspicious_data: Dict):
-        """Send alert via Telegram"""
-        if not self.telegram_token or not self.telegram_chat_id:
-            return False
-        
-        try:
-            message = f"""
-🚨 *SUSPICIOUS ACTIVITY DETECTED* 🚨
 
-*Market:* {suspicious_data['market_question']}
-*Category:* {suspicious_data['market_category']}
-
-*Wallet:* `{suspicious_data['wallet_address']}`
-*Wallet Age:* {suspicious_data['wallet_age_days'] or 'Unknown'} days
-
-*Bet Details:*
-• Size: ${suspicious_data['bet_size']:,.2f}
-• Outcome: {suspicious_data['outcome']}
-• Odds: {suspicious_data['odds']*100:.1f}%
-
-*Time:* {suspicious_data['timestamp']}
-
-[View on Polygonscan](https://polygonscan.com/address/{suspicious_data['wallet_address']})
-            """
-            
-            url = f"https://api.telegram.org/bot{self.telegram_token}/sendMessage"
-            payload = {
-                "chat_id": self.telegram_chat_id,
-                "text": message,
-                "parse_mode": "Markdown"
-            }
-            
-            response = requests.post(url, json=payload, timeout=10)
-            
-            if response.status_code == 200:
-                # Mark as alerted in database
-                conn = sqlite3.connect(self.db_path)
-                cursor = conn.cursor()
-                cursor.execute(
-                    "UPDATE suspicious_trades SET alerted = 1 WHERE trade_id = ?",
-                    (suspicious_data["trade_id"],)
-                )
-                conn.commit()
-                conn.close()
-                
-                logger.info(f"Telegram alert sent for trade {suspicious_data['trade_id']}")
-                return True
-            else:
-                logger.error(f"Failed to send Telegram alert: {response.status_code}")
-                return False
-                
-        except Exception as e:
-            logger.error(f"Error sending Telegram alert: {e}")
-            return False
-    
-    def scan_markets(self):
-        """Main scanning function"""
+    def scan_markets(self) -> int:
+        """Main scanning function. Returns number of suspicious trades found."""
         logger.info("Starting market scan...")
-        
+        suspicious_count = 0
+
         markets = self.get_markets()
-        
+
         for market in markets:
             try:
                 market_id = market["market_id"]
-                logger.info(f"Scanning market: {market['question']}")
-                
+                logger.debug(f"Scanning market: {market['question'][:50]}...")
+
                 # Get current odds
                 current_odds = self.get_market_prices(market_id)
-                
+                if not current_odds:
+                    continue
+
                 # Get recent trades
                 trades = self.get_trades(market_id)
-                
+
                 for trade in trades:
                     suspicious_data = self.analyze_trade(trade, market, current_odds)
-                    
+
                     if suspicious_data:
-                        logger.warning(f"Suspicious trade detected: {suspicious_data}")
-                        
+                        logger.warning(f"Suspicious trade: ${suspicious_data['bet_size']:,.0f} "
+                                       f"on {suspicious_data['outcome']} @ {suspicious_data['odds']*100:.1f}%")
+
                         # Save to database
-                        if self.save_suspicious_trade(suspicious_data):
-                            # Send alert if Telegram is configured
-                            self.send_telegram_alert(suspicious_data)
-                
-                # Rate limiting - be nice to the API
+                        if self.db.save_suspicious_trade(suspicious_data):
+                            suspicious_count += 1
+
+                            # Send alerts
+                            results = self.notifications.send_alert(suspicious_data)
+
+                            # Mark as alerted if any notification succeeded
+                            if any(results.values()):
+                                self.db.mark_trade_alerted(
+                                    suspicious_data["trade_id"],
+                                    ", ".join(k for k, v in results.items() if v)
+                                )
+
+                # Rate limiting
                 time.sleep(2)
-                
+
             except Exception as e:
-                logger.error(f"Error scanning market {market['market_id']}: {e}")
+                logger.error(f"Error scanning market {market.get('market_id')}: {e}")
                 continue
-        
-        logger.info("Market scan completed")
-    
-    def get_suspicious_trades(self, limit: int = 100) -> List[Dict]:
-        """Get recent suspicious trades from database"""
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            
-            cursor.execute("""
-                SELECT * FROM suspicious_trades 
-                ORDER BY detected_at DESC 
-                LIMIT ?
-            """, (limit,))
-            
-            columns = [description[0] for description in cursor.description]
-            trades = []
-            
-            for row in cursor.fetchall():
-                trades.append(dict(zip(columns, row)))
-            
-            conn.close()
-            return trades
-            
-        except Exception as e:
-            logger.error(f"Error fetching suspicious trades: {e}")
-            return []
-    
-    def get_wallet_stats(self, wallet_address: str) -> Optional[Dict]:
-        """Get statistics for a specific wallet"""
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            
-            cursor.execute("""
-                SELECT * FROM wallet_analysis 
-                WHERE wallet_address = ?
-            """, (wallet_address,))
-            
-            row = cursor.fetchone()
-            
-            if row:
-                columns = [description[0] for description in cursor.description]
-                stats = dict(zip(columns, row))
-                
-                # Get all trades for this wallet
-                cursor.execute("""
-                    SELECT * FROM suspicious_trades 
-                    WHERE wallet_address = ?
-                    ORDER BY timestamp DESC
-                """, (wallet_address,))
-                
-                trade_columns = [description[0] for description in cursor.description]
-                trades = []
-                for trade_row in cursor.fetchall():
-                    trades.append(dict(zip(trade_columns, trade_row)))
-                
-                stats["trades"] = trades
-                conn.close()
-                return stats
-            
-            conn.close()
-            return None
-            
-        except Exception as e:
-            logger.error(f"Error fetching wallet stats: {e}")
-            return None
-    
-    def run_continuous(self, interval_minutes: int = 10):
+
+        logger.info(f"Scan completed. Found {suspicious_count} suspicious trades.")
+        return suspicious_count
+
+    def run_continuous(self, interval_minutes: int = 5):
         """Run continuous monitoring"""
         logger.info(f"Starting continuous monitoring (interval: {interval_minutes} minutes)")
-        
+
         while True:
             try:
                 self.scan_markets()
                 logger.info(f"Sleeping for {interval_minutes} minutes...")
                 time.sleep(interval_minutes * 60)
+
             except KeyboardInterrupt:
                 logger.info("Monitoring stopped by user")
                 break
@@ -516,13 +470,38 @@ class PolymarketMonitor:
                 logger.error(f"Error in continuous monitoring: {e}")
                 time.sleep(60)  # Wait 1 minute before retrying
 
+    # =========================================================================
+    # Helper methods for external access
+    # =========================================================================
+
+    def get_suspicious_trades(self, limit: int = 100) -> List[Dict]:
+        """Get recent suspicious trades from database"""
+        return self.db.get_suspicious_trades(limit)
+
+    def get_wallet_stats(self, wallet_address: str) -> Optional[Dict]:
+        """Get statistics for a specific wallet"""
+        return self.db.get_wallet_stats(wallet_address)
+
+    def add_monitored_wallet(self, wallet_address: str, label: str = None,
+                             notes: str = None) -> bool:
+        """Add a wallet to monitoring list"""
+        return self.db.add_monitored_wallet(wallet_address, label, notes)
+
+    def remove_monitored_wallet(self, wallet_address: str) -> bool:
+        """Remove a wallet from monitoring list"""
+        return self.db.remove_monitored_wallet(wallet_address)
+
+    def get_monitored_wallets(self) -> List[Dict]:
+        """Get list of monitored wallets"""
+        return self.db.get_monitored_wallets()
+
 
 if __name__ == "__main__":
     # Example usage
     monitor = PolymarketMonitor()
-    
+
     # Run a single scan
     monitor.scan_markets()
-    
+
     # Or run continuous monitoring
-    # monitor.run_continuous(interval_minutes=10)
+    # monitor.run_continuous(interval_minutes=5)
