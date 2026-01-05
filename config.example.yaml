@@ -1,0 +1,109 @@
+# PolyTracker Configuration
+# Copy this file to config.yaml and customize
+
+# =============================================================================
+# DETECTION THRESHOLDS
+# =============================================================================
+detection:
+  # Flag wallets younger than this many days
+  wallet_age_days: 30
+
+  # Flag bets larger than this amount (USD)
+  min_bet_size: 10000
+
+  # Flag bets on outcomes with probability below this (0.0 - 1.0)
+  # 0.20 = 20% odds
+  max_odds: 0.20
+
+# =============================================================================
+# MARKET CATEGORIES
+# =============================================================================
+categories:
+  # Which categories to monitor
+  enabled:
+    - crypto
+    - news
+    - politics
+    # - sports        # Uncomment to enable
+    # - entertainment # Uncomment to enable
+
+  # Additional keywords to match markets (case-insensitive)
+  custom_keywords: []
+  # Example:
+  # custom_keywords:
+  #   - "bitcoin"
+  #   - "election"
+  #   - "specific_topic"
+
+# =============================================================================
+# API CONFIGURATION
+# =============================================================================
+api:
+  # Polymarket Builder API key (optional, for higher rate limits)
+  # Get from: https://docs.polymarket.com
+  polymarket_api_key: ""
+
+  # Polygonscan API key (required for wallet age detection)
+  # Get from: https://polygonscan.com/apis
+  polygonscan_api_key: ""
+
+  # How often to scan markets (minutes)
+  scan_interval_minutes: 5
+
+  # Number of retry attempts for failed API calls
+  retry_attempts: 3
+
+  # Base backoff time for retries (seconds)
+  retry_backoff_base: 2
+
+# =============================================================================
+# NOTIFICATIONS
+# =============================================================================
+notifications:
+  # Telegram configuration
+  telegram:
+    enabled: false
+    # Get from @BotFather
+    bot_token: ""
+    # Your chat/group ID
+    chat_id: ""
+
+  # Slack configuration (planned)
+  slack:
+    enabled: false
+    # Slack incoming webhook URL
+    webhook_url: ""
+    # Channel to post to
+    channel: "#polymarket-alerts"
+
+  # Alert settings
+  settings:
+    # Prevent duplicate alerts for same trade
+    deduplicate: true
+    # Maximum alerts per hour (0 = unlimited)
+    rate_limit: 0
+    # Combine multiple alerts into digest
+    digest_mode: false
+
+# =============================================================================
+# DATABASE
+# =============================================================================
+database:
+  # SQLite database file path
+  path: "polymarket_monitor.db"
+
+# =============================================================================
+# MANUALLY MONITORED WALLETS
+# =============================================================================
+# These wallets will be tracked regardless of thresholds
+monitored_wallets: []
+# Example:
+# monitored_wallets:
+#   - address: "0x1234567890abcdef1234567890abcdef12345678"
+#     label: "Whale #1"
+#     notes: "Large trader on crypto markets"
+#     bypass_thresholds: true
+#   - address: "0xabcdef1234567890abcdef1234567890abcdef12"
+#     label: "Suspicious Actor"
+#     notes: "Previously flagged for unusual activity"
+#     bypass_thresholds: true
