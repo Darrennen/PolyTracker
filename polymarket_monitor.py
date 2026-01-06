@@ -713,7 +713,20 @@ class PolymarketMonitor:
                 status TEXT
             )
         """)
-        
+
+        # Tracked markets
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS tracked_markets (
+                market_id TEXT PRIMARY KEY,
+                question TEXT,
+                category TEXT,
+                end_date TEXT,
+                added_at TEXT,
+                active INTEGER DEFAULT 1,
+                total_alerts INTEGER DEFAULT 0
+            )
+        """)
+
         conn.commit()
         conn.close()
         logger.info("Database initialized")
@@ -830,7 +843,90 @@ class PolymarketMonitor:
             return result
         except:
             return False
-    
+
+    def add_tracked_market(
+        self,
+        market_id: str,
+        question: str = None,
+        category: str = None,
+        end_date: str = None
+    ) -> bool:
+        """Add market to tracking list"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                INSERT OR REPLACE INTO tracked_markets
+                (market_id, question, category, end_date, added_at, active)
+                VALUES (?, ?, ?, ?, ?, 1)
+            """, (
+                market_id,
+                question or f"Market {market_id[:8]}...",
+                category or "Unknown",
+                end_date,
+                datetime.now().isoformat()
+            ))
+
+            conn.commit()
+            conn.close()
+            return True
+
+        except Exception as e:
+            logger.error(f"Error adding tracked market: {e}")
+            return False
+
+    def remove_tracked_market(self, market_id: str) -> bool:
+        """Remove market from tracking"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute(
+                "DELETE FROM tracked_markets WHERE market_id = ?",
+                (market_id,)
+            )
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            logger.error(f"Error removing market: {e}")
+            return False
+
+    def get_tracked_markets(self, active_only: bool = True) -> List[Dict]:
+        """Get all tracked markets"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+
+            if active_only:
+                cursor.execute("SELECT * FROM tracked_markets WHERE active = 1")
+            else:
+                cursor.execute("SELECT * FROM tracked_markets")
+
+            columns = [d[0] for d in cursor.description]
+            markets = [dict(zip(columns, row)) for row in cursor.fetchall()]
+            conn.close()
+            return markets
+
+        except Exception as e:
+            logger.error(f"Error fetching tracked markets: {e}")
+            return []
+
+    def is_tracked_market(self, market_id: str) -> bool:
+        """Check if market is being tracked"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT 1 FROM tracked_markets WHERE market_id = ? AND active = 1",
+                (market_id,)
+            )
+            result = cursor.fetchone() is not None
+            conn.close()
+            return result
+        except:
+            return False
+
     def analyze_trade(self, trade: Dict) -> Optional[Dict]:
         """
         Analyze a trade for suspicious patterns
