@@ -1252,7 +1252,9 @@ class PolymarketMonitor:
             return stats
             
         except Exception as e:
+            import traceback
             logger.error(f"Full scan error: {e}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
             return stats
     
     def _log_scan(self, stats: Dict):
