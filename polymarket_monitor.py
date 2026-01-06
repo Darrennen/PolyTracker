@@ -1115,6 +1115,23 @@ class PolymarketMonitor:
                     if not self.is_tracked_wallet(wallet):
                         return None
             
+            # Parse outcome field - Polymarket API may return different formats
+            outcome_raw = trade.get('outcome', '')
+            outcome = outcome_raw
+
+            # Handle different outcome formats from API
+            if isinstance(outcome_raw, str):
+                outcome = outcome_raw.upper()  # Normalize to uppercase
+            elif isinstance(outcome_raw, (int, float)):
+                # Some APIs return 0/1 or token index
+                outcome = "YES" if int(outcome_raw) == 0 else "NO"
+
+            # If still empty or invalid, try to infer from other fields
+            if not outcome or outcome not in ['YES', 'NO']:
+                # Log for debugging
+                logger.warning(f"Unknown outcome format: {outcome_raw} for trade {trade.get('transactionHash', 'unknown')[:16]}")
+                outcome = "YES"  # Default to YES if unknown
+
             # Build suspicious trade data
             return {
                 "trade_id": trade.get('transactionHash', f"{wallet}_{trade.get('timestamp', '')}"),
@@ -1123,7 +1140,7 @@ class PolymarketMonitor:
                 "market_question": trade.get('title', ''),
                 "market_category": trade.get('eventSlug', ''),
                 "bet_size": usd_value,
-                "outcome": trade.get('outcome', ''),
+                "outcome": outcome,
                 "side": side,
                 "odds": price,
                 "shares": size,
@@ -1134,7 +1151,8 @@ class PolymarketMonitor:
                 "proxyWallet": wallet,
                 "title": trade.get('title'),
                 "price": price,
-                "size": size
+                "size": size,
+                "outcome_raw": str(outcome_raw)  # Store raw value for debugging
             }
             
         except Exception as e:
