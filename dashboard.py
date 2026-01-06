@@ -1081,8 +1081,17 @@ with tab4:
 
                     question = market.get("question") or event.get("title", "Unknown")
 
-                    # Get market tags
-                    event_tags_str = ", ".join(event.get("tags", [])[:3]) if isinstance(event.get("tags", []), list) else ""
+                    # Get market tags - handle both string and dict tags
+                    raw_tags = event.get("tags", [])
+                    tag_strings = []
+                    for t in raw_tags[:3]:  # Take first 3 tags
+                        if isinstance(t, str):
+                            tag_strings.append(t)
+                        elif isinstance(t, dict):
+                            tag_str = t.get('label') or t.get('name') or t.get('slug')
+                            if tag_str:
+                                tag_strings.append(tag_str)
+                    event_tags_str = ", ".join(tag_strings)
 
                     with st.container():
                         col1, col2, col3 = st.columns([4, 1, 1])
