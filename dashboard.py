@@ -300,6 +300,9 @@ if 'selected_wallet' not in st.session_state:
     st.session_state.selected_wallet = None
 if 'config' not in st.session_state:
     st.session_state.config = DetectionConfig()
+if 'selected_categories' not in st.session_state:
+    # Default categories similar to Polymarket
+    st.session_state.selected_categories = ["Politics", "Crypto", "Sports", "Finance"]
 
 
 # ============================================================================
@@ -539,6 +542,32 @@ with st.sidebar:
     else:
         st.caption("No filters active")
 
+    # Market filter
+    st.divider()
+    st.markdown("### 🎯 Market Filter")
+
+    # Get tracked markets for filtering
+    if 'monitor' in st.session_state and st.session_state.monitor:
+        tracked_markets = st.session_state.monitor.get_tracked_markets()
+
+        if tracked_markets:
+            market_options = ["All Markets"] + [
+                f"{m['question'][:40]}..." if len(m['question']) > 40 else m['question']
+                for m in tracked_markets
+            ]
+            selected_market = st.selectbox(
+                "Filter by market",
+                market_options,
+                key="market_filter"
+            )
+
+            if selected_market != "All Markets":
+                idx = market_options.index(selected_market) - 1
+                st.caption(f"🎯 Tracking: {tracked_markets[idx]['question'][:30]}...")
+        else:
+            st.caption("No markets tracked yet")
+            st.caption("Add markets in Market Tracker tab")
+
 
 # ============================================================================
 # Main Content
@@ -548,12 +577,54 @@ with st.sidebar:
 st.markdown('<h1 class="main-title">🎯 Polymarket Sus Wallet Monitor</h1>', unsafe_allow_html=True)
 st.markdown('<p class="subtitle">Real-time detection of suspicious betting patterns on Polymarket</p>', unsafe_allow_html=True)
 
+# ============================================================================
+# Category Selection (Polymarket-style) - Always visible
+# ============================================================================
+
+# All available Polymarket categories
+ALL_CATEGORIES = [
+    "Politics", "Crypto", "Sports", "Finance", "Geopolitics",
+    "Earnings", "Tech", "Culture", "World", "Economy",
+    "Climate & Science", "Elections", "AI", "Business", "Pop Culture"
+]
+
+st.markdown("### 📂 Market Categories")
+st.caption("Select which Polymarket categories you want to monitor")
+
+# Create category pills with custom styling
+cols = st.columns(5)
+for idx, category in enumerate(ALL_CATEGORIES):
+    col_idx = idx % 5
+    with cols[col_idx]:
+        is_selected = category in st.session_state.selected_categories
+
+        if st.button(
+            f"{'✓ ' if is_selected else ''}{category}",
+            key=f"cat_{category}",
+            use_container_width=True,
+            type="primary" if is_selected else "secondary"
+        ):
+            # Toggle category selection
+            if is_selected:
+                st.session_state.selected_categories.remove(category)
+            else:
+                st.session_state.selected_categories.append(category)
+            st.rerun()
+
+# Show active categories
+if st.session_state.selected_categories:
+    st.caption(f"✓ Monitoring {len(st.session_state.selected_categories)} categories: {', '.join(st.session_state.selected_categories[:5])}{'...' if len(st.session_state.selected_categories) > 5 else ''}")
+else:
+    st.caption("⚠️ No categories selected - all markets will be monitored")
+
+st.divider()
+
 # Check if monitor is initialized
 if st.session_state.monitor is None:
     st.markdown("""
     <div class="alert-info">
         <h3>👋 Welcome!</h3>
-        <p>Configure your detection thresholds in the sidebar and click <strong>Initialize Monitor</strong> to begin.</p>
+        <p>You've selected your categories! Now configure your detection thresholds in the sidebar and click <strong>Initialize Monitor</strong> to begin.</p>
         <br>
         <strong>What this monitors:</strong>
         <ul>
@@ -636,10 +707,11 @@ st.divider()
 # Tabs
 # ============================================================================
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "📊 Dashboard",
     "🔍 Recent Activity",
     "👛 Wallet Tracker",
+    "🎯 Market Tracker",
     "➕ Add Wallet",
     "📈 Statistics"
 ])
@@ -785,16 +857,31 @@ with tab2:
         filtered_df = df.copy()
         filtered_df = filtered_df[filtered_df['bet_size'] >= filter_min_bet]
         filtered_df = filtered_df[filtered_df['odds_cents'] <= filter_max_price]
-        
+
         if filter_position != "All":
             filtered_df = filtered_df[filtered_df['outcome'] == filter_position]
-        
+
         if filter_age < 90:
             filtered_df = filtered_df[
-                (filtered_df['wallet_age_days'].isna()) | 
+                (filtered_df['wallet_age_days'].isna()) |
                 (filtered_df['wallet_age_days'] <= filter_age)
             ]
-        
+
+        # Apply market filter from sidebar
+        if 'market_filter' in st.session_state and st.session_state.market_filter != "All Markets":
+            tracked_markets = monitor.get_tracked_markets()
+            if tracked_markets:
+                market_options = [
+                    f"{m['question'][:40]}..." if len(m['question']) > 40 else m['question']
+                    for m in tracked_markets
+                ]
+                try:
+                    idx = market_options.index(st.session_state.market_filter)
+                    selected_market_id = tracked_markets[idx]['market_id']
+                    filtered_df = filtered_df[filtered_df['market_id'] == selected_market_id]
+                except (ValueError, IndexError):
+                    pass  # Market filter not found, show all
+
         st.caption(f"Showing {len(filtered_df)} trades")
         st.divider()
         
@@ -958,10 +1045,255 @@ with tab3:
 
 
 # ============================================================================
-# TAB 4: Add Wallet
+# TAB 4: Market Tracker
 # ============================================================================
 
 with tab4:
+    st.markdown("#### 🎯 Market Tracker")
+    st.markdown("Browse and track specific Polymarket markets to monitor for suspicious activity.")
+
+    # Get tracked markets
+    tracked_markets = monitor.get_tracked_markets()
+
+    col1, col2 = st.columns([2, 1])
+
+    with col1:
+        search_mode = st.radio(
+            "Search for markets",
+            ["Browse Active Markets", "Search by ID"],
+            horizontal=True
+        )
+
+    with col2:
+        if st.button("🔄 Refresh", key="refresh_markets"):
+            st.rerun()
+
+    st.divider()
+
+    if search_mode == "Browse Active Markets":
+        # Show active category selection
+        if st.session_state.selected_categories:
+            st.info(f"📂 Filtering by selected categories: {', '.join(st.session_state.selected_categories)}")
+        else:
+            st.warning("⚠️ No categories selected - showing all markets")
+
+        # Fetch active markets from API
+        with st.spinner("Loading markets..."):
+            events = monitor.api.get_events(active=True, limit=100)
+
+        if events:
+            # Filter events by selected categories first
+            filtered_events = []
+            for event in events:
+                # Extract event tags
+                event_tags = []
+                raw_tags = event.get("tags", [])
+                for t in raw_tags:
+                    if isinstance(t, str):
+                        event_tags.append(t)
+                    elif isinstance(t, dict):
+                        tag_str = t.get('label') or t.get('name') or t.get('slug')
+                        if tag_str:
+                            event_tags.append(tag_str)
+
+                # Check if event matches selected categories
+                if st.session_state.selected_categories:
+                    if any(cat in event_tags for cat in st.session_state.selected_categories):
+                        filtered_events.append(event)
+                else:
+                    # No categories selected, show all
+                    filtered_events.append(event)
+
+            st.markdown(f"##### Found {len(filtered_events)} matching events")
+
+            # Additional category filter within results
+            all_categories = set()
+            for event in filtered_events:
+                raw_tags = event.get("tags", [])
+                for t in raw_tags:
+                    if isinstance(t, str):
+                        all_categories.add(t)
+                    elif isinstance(t, dict):
+                        tag_str = t.get('label') or t.get('name') or t.get('slug')
+                        if tag_str:
+                            all_categories.add(tag_str)
+
+            additional_filter = st.multiselect(
+                "Further filter within results",
+                sorted(list(all_categories)),
+                default=[],
+                help="Narrow down results within your selected categories"
+            )
+
+            st.divider()
+
+            # Display markets
+            markets_shown = 0
+            for event in filtered_events:
+                if markets_shown >= 20:  # Limit display
+                    st.info(f"Showing first 20 markets. {len(filtered_events) - 20} more available.")
+                    break
+
+                markets = event.get("markets", [])
+                if not markets:
+                    continue
+
+                # Apply additional filter if set
+                if additional_filter:
+                    event_tags = []
+                    raw_tags = event.get("tags", [])
+                    for t in raw_tags:
+                        if isinstance(t, str):
+                            event_tags.append(t)
+                        elif isinstance(t, dict):
+                            tag_str = t.get('label') or t.get('name') or t.get('slug')
+                            if tag_str:
+                                event_tags.append(tag_str)
+
+                    if not any(cat in event_tags for cat in additional_filter):
+                        continue
+
+                for market in markets:
+                    market_id = market.get("conditionId") or market.get("id")
+                    if not market_id:
+                        continue
+
+                    question = market.get("question") or event.get("title", "Unknown")
+
+                    # Get market tags - handle both string and dict tags
+                    raw_tags = event.get("tags", [])
+                    tag_strings = []
+                    for t in raw_tags[:3]:  # Take first 3 tags
+                        if isinstance(t, str):
+                            tag_strings.append(t)
+                        elif isinstance(t, dict):
+                            tag_str = t.get('label') or t.get('name') or t.get('slug')
+                            if tag_str:
+                                tag_strings.append(tag_str)
+                    event_tags_str = ", ".join(tag_strings)
+
+                    with st.container():
+                        col1, col2, col3 = st.columns([4, 1, 1])
+
+                        with col1:
+                            is_tracked = monitor.is_tracked_market(market_id)
+                            icon = "✅ " if is_tracked else ""
+                            st.markdown(f"**{icon}{question[:80]}{'...' if len(question) > 80 else ''}**")
+                            st.caption(f"ID: {market_id[:16]}... | Category: {event_tags_str or 'General'}")
+
+                        with col2:
+                            st.link_button(
+                                "🔗 View",
+                                f"https://polymarket.com/event/{event.get('slug', market_id)}",
+                                use_container_width=True
+                            )
+
+                        with col3:
+                            if is_tracked:
+                                if st.button("❌ Untrack", key=f"untrack_{market_id[:8]}", use_container_width=True):
+                                    monitor.remove_tracked_market(market_id)
+                                    st.success("Removed!")
+                                    st.rerun()
+                            else:
+                                if st.button("➕ Track", key=f"track_mkt_{market_id[:8]}", use_container_width=True):
+                                    monitor.add_tracked_market(
+                                        market_id=market_id,
+                                        question=question,
+                                        category=event_tags_str or "General",
+                                        end_date=event.get("endDate")
+                                    )
+                                    st.success("Added!")
+                                    st.rerun()
+
+                        st.divider()
+                        markets_shown += 1
+        else:
+            st.warning("No active markets found")
+
+    else:  # Search by ID
+        market_id = st.text_input(
+            "Market/Condition ID",
+            placeholder="Enter market condition ID...",
+            help="The unique identifier for the market"
+        )
+
+        if market_id and st.button("🔍 Search"):
+            with st.spinner("Searching..."):
+                market_data = monitor.api.get_market_by_id(market_id)
+
+            if market_data:
+                st.success("Market found!")
+
+                col1, col2 = st.columns([3, 1])
+
+                with col1:
+                    st.markdown(f"**Question:** {market_data.get('question', 'Unknown')}")
+                    st.caption(f"ID: {market_id}")
+
+                with col2:
+                    if monitor.is_tracked_market(market_id):
+                        if st.button("❌ Untrack", key="untrack_search"):
+                            monitor.remove_tracked_market(market_id)
+                            st.success("Removed!")
+                            st.rerun()
+                    else:
+                        if st.button("➕ Track", key="track_search"):
+                            monitor.add_tracked_market(
+                                market_id=market_id,
+                                question=market_data.get('question'),
+                                category=market_data.get('tags', ['General'])[0] if market_data.get('tags') else 'General'
+                            )
+                            st.success("Added to tracking!")
+                            st.rerun()
+            else:
+                st.error("Market not found")
+
+    st.divider()
+
+    # Show tracked markets
+    st.markdown("#### 📌 Currently Tracking")
+
+    if tracked_markets:
+        st.markdown(f"##### {len(tracked_markets)} markets")
+
+        for market in tracked_markets:
+            with st.container():
+                col1, col2, col3 = st.columns([4, 1, 1])
+
+                with col1:
+                    st.markdown(f"**{market.get('question', 'Unknown')}**")
+                    st.caption(f"Category: {market.get('category', 'Unknown')} | Added: {market['added_at'][:10]}")
+
+                with col2:
+                    # Get trade count for this market
+                    conn = monitor.db_path
+                    import sqlite3
+                    db = sqlite3.connect(conn)
+                    cursor = db.cursor()
+                    cursor.execute(
+                        "SELECT COUNT(*) FROM suspicious_trades WHERE market_id = ?",
+                        (market['market_id'],)
+                    )
+                    count = cursor.fetchone()[0]
+                    db.close()
+
+                    st.metric("Alerts", count)
+
+                with col3:
+                    if st.button("🗑️ Remove", key=f"remove_{market['market_id'][:8]}"):
+                        monitor.remove_tracked_market(market['market_id'])
+                        st.rerun()
+
+                st.divider()
+    else:
+        st.info("No markets being tracked. Browse markets above to start tracking.")
+
+
+# ============================================================================
+# TAB 5: Add Wallet
+# ============================================================================
+
+with tab5:
     st.markdown("#### ➕ Add Wallet to Track")
     st.markdown("Add wallets you want to monitor for suspicious activity.")
     
@@ -1042,10 +1374,10 @@ with tab4:
 
 
 # ============================================================================
-# TAB 5: Statistics
+# TAB 6: Statistics
 # ============================================================================
 
-with tab5:
+with tab6:
     st.markdown("#### 📈 Statistics & Insights")
     
     if df.empty:
