@@ -511,7 +511,9 @@ with st.sidebar:
                 if scan_type == "Quick (Recent Trades)":
                     stats = st.session_state.monitor.scan_recent_trades()
                 elif scan_type == "Full (All Markets)":
-                    stats = st.session_state.monitor.scan_markets()
+                    # Pass selected categories to scan
+                    categories = st.session_state.selected_categories if st.session_state.selected_categories else None
+                    stats = st.session_state.monitor.scan_markets(categories=categories)
                 else:
                     stats = st.session_state.monitor.scan_tracked_wallets()
                 
@@ -648,9 +650,44 @@ if suspicious_trades:
     df['bet_size'] = df['bet_size'].astype(float)
     df['odds'] = df['odds'].astype(float)
     df['odds_cents'] = df['odds'] * 100  # Convert to cents for display
+
+    # Apply category filter if categories are selected
+    if st.session_state.selected_categories:
+        # Build category keywords mapping
+        category_keywords = {
+            "Politics": ["trump", "biden", "election", "president", "senate", "congress", "politics", "vote", "poll"],
+            "Sports": ["nfl", "nba", "mlb", "nhl", "soccer", "football", "basketball", "baseball", "sports", "game", "playoff"],
+            "Crypto": ["bitcoin", "crypto", "btc", "eth", "ethereum", "blockchain", "defi", "nft"],
+            "Finance": ["stock", "market", "fed", "interest", "economy", "dow", "s&p", "nasdaq", "trading"],
+            "Tech": ["tech", "apple", "google", "amazon", "microsoft", "ai", "software"],
+            "Culture": ["culture", "music", "movie", "celebrity", "entertainment"],
+            "Pop Culture": ["pop", "celebrity", "kardashian", "taylor", "beyonce"],
+            "Geopolitics": ["china", "russia", "ukraine", "war", "nato", "conflict", "israel", "gaza"],
+            "World": ["global", "international", "world", "country"],
+            "Economy": ["gdp", "inflation", "recession", "unemployment", "economic"],
+            "Climate & Science": ["climate", "science", "weather", "temperature", "carbon", "research"],
+            "Elections": ["election", "vote", "ballot", "primary", "caucus"],
+            "AI": ["ai", "artificial intelligence", "chatgpt", "openai", "llm"],
+            "Business": ["business", "company", "ceo", "earnings", "profit"],
+            "Earnings": ["earnings", "revenue", "profit", "quarterly", "q1", "q2", "q3", "q4"]
+        }
+
+        # Filter to only show trades matching selected categories
+        def matches_category(row):
+            market_text = (str(row.get('market_question', '')) + ' ' + str(row.get('market_category', ''))).lower()
+            for category in st.session_state.selected_categories:
+                keywords = category_keywords.get(category, [category.lower()])
+                if any(keyword in market_text for keyword in keywords):
+                    return True
+            return False
+
+        df = df[df.apply(matches_category, axis=1)]
 else:
     df = pd.DataFrame()
 
+# Show category filter status
+if st.session_state.selected_categories:
+    st.info(f"🔍 Filtering by categories: **{', '.join(st.session_state.selected_categories)}** ({len(df)} trades match)")
 
 # ============================================================================
 # Key Metrics
