@@ -309,6 +309,115 @@ if 'last_refresh_time' not in st.session_state:
     st.session_state.last_refresh_time = datetime.now()
 if 'refresh_interval' not in st.session_state:
     st.session_state.refresh_interval = 60
+if 'authenticated' not in st.session_state:
+    st.session_state.authenticated = False
+if 'current_user' not in st.session_state:
+    st.session_state.current_user = None
+if 'auth_page' not in st.session_state:
+    st.session_state.auth_page = "login"  # "login" or "signup"
+
+
+# ============================================================================
+# Authentication Gate
+# ============================================================================
+
+def show_login_page():
+    """Display login form"""
+    st.markdown('<h1 class="main-title">🎯 Polymarket Sus Wallet Monitor</h1>', unsafe_allow_html=True)
+    st.markdown('<p class="subtitle">Please login to continue</p>', unsafe_allow_html=True)
+
+    col1, col2, col3 = st.columns([1, 2, 1])
+
+    with col2:
+        st.markdown("### 🔐 Login")
+
+        with st.form("login_form"):
+            username = st.text_input("Username", key="login_username")
+            password = st.text_input("Password", type="password", key="login_password")
+            submit = st.form_submit_button("Login", use_container_width=True, type="primary")
+
+            if submit:
+                if not username or not password:
+                    st.error("Please enter both username and password")
+                else:
+                    # Initialize temporary monitor just for authentication
+                    temp_monitor = PolymarketMonitor(db_path="polymarket_monitor.db")
+                    success, user_data = temp_monitor.authenticate_user(username, password)
+
+                    if success:
+                        st.session_state.authenticated = True
+                        st.session_state.current_user = user_data
+                        st.success(f"Welcome back, {user_data['username']}!")
+                        time.sleep(0.5)
+                        st.rerun()
+                    else:
+                        st.error("Invalid username or password")
+
+        st.divider()
+
+        col_a, col_b = st.columns(2)
+        with col_a:
+            st.caption("Don't have an account?")
+        with col_b:
+            if st.button("Sign Up", use_container_width=True):
+                st.session_state.auth_page = "signup"
+                st.rerun()
+
+
+def show_signup_page():
+    """Display signup form"""
+    st.markdown('<h1 class="main-title">🎯 Polymarket Sus Wallet Monitor</h1>', unsafe_allow_html=True)
+    st.markdown('<p class="subtitle">Create your account</p>', unsafe_allow_html=True)
+
+    col1, col2, col3 = st.columns([1, 2, 1])
+
+    with col2:
+        st.markdown("### 📝 Sign Up")
+
+        with st.form("signup_form"):
+            username = st.text_input("Username (min 3 characters)", key="signup_username")
+            email = st.text_input("Email", key="signup_email")
+            password = st.text_input("Password (min 6 characters)", type="password", key="signup_password")
+            password_confirm = st.text_input("Confirm Password", type="password", key="signup_password_confirm")
+            submit = st.form_submit_button("Create Account", use_container_width=True, type="primary")
+
+            if submit:
+                if not username or not email or not password or not password_confirm:
+                    st.error("Please fill in all fields")
+                elif password != password_confirm:
+                    st.error("Passwords do not match")
+                else:
+                    # Initialize temporary monitor just for user creation
+                    temp_monitor = PolymarketMonitor(db_path="polymarket_monitor.db")
+                    success, message = temp_monitor.create_user(username, email, password)
+
+                    if success:
+                        st.success(message)
+                        st.info("Please login with your new account")
+                        time.sleep(1)
+                        st.session_state.auth_page = "login"
+                        st.rerun()
+                    else:
+                        st.error(message)
+
+        st.divider()
+
+        col_a, col_b = st.columns(2)
+        with col_a:
+            st.caption("Already have an account?")
+        with col_b:
+            if st.button("Login", use_container_width=True):
+                st.session_state.auth_page = "login"
+                st.rerun()
+
+
+# Check authentication status
+if not st.session_state.authenticated:
+    if st.session_state.auth_page == "login":
+        show_login_page()
+    else:
+        show_signup_page()
+    st.stop()
 
 
 # ============================================================================
@@ -316,6 +425,20 @@ if 'refresh_interval' not in st.session_state:
 # ============================================================================
 
 with st.sidebar:
+    # User info and logout
+    st.markdown(f"### 👤 {st.session_state.current_user['username']}")
+    st.caption(f"📧 {st.session_state.current_user['email']}")
+
+    if st.button("🚪 Logout", use_container_width=True):
+        st.session_state.authenticated = False
+        st.session_state.current_user = None
+        st.session_state.monitor = None
+        st.success("Logged out successfully")
+        time.sleep(0.5)
+        st.rerun()
+
+    st.divider()
+
     st.markdown("### ⚙️ Configuration")
     
     # Database path
