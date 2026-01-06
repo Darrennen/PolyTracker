@@ -303,6 +303,12 @@ if 'config' not in st.session_state:
 if 'selected_categories' not in st.session_state:
     # Default categories similar to Polymarket
     st.session_state.selected_categories = ["Politics", "Crypto", "Sports", "Finance"]
+if 'auto_refresh_enabled' not in st.session_state:
+    st.session_state.auto_refresh_enabled = False
+if 'last_refresh_time' not in st.session_state:
+    st.session_state.last_refresh_time = datetime.now()
+if 'refresh_interval' not in st.session_state:
+    st.session_state.refresh_interval = 60
 
 
 # ============================================================================
@@ -544,6 +550,29 @@ with st.sidebar:
     else:
         st.caption("No filters active")
 
+    # Auto-refresh settings
+    st.divider()
+    st.markdown("### 🔄 Auto-Refresh")
+
+    auto_refresh = st.checkbox(
+        "Enable auto-refresh",
+        value=st.session_state.auto_refresh_enabled,
+        help="Automatically refresh dashboard every 60 seconds"
+    )
+    st.session_state.auto_refresh_enabled = auto_refresh
+
+    if auto_refresh:
+        refresh_interval = st.slider(
+            "Refresh interval (seconds)",
+            min_value=30,
+            max_value=300,
+            value=st.session_state.refresh_interval,
+            step=30,
+            help="How often to refresh the dashboard"
+        )
+        st.session_state.refresh_interval = refresh_interval
+        st.caption(f"⏱️ Refreshing every {refresh_interval}s")
+
     # Market filter
     st.divider()
     st.markdown("### 🎯 Market Filter")
@@ -578,6 +607,36 @@ with st.sidebar:
 # Header
 st.markdown('<h1 class="main-title">🎯 Polymarket Sus Wallet Monitor</h1>', unsafe_allow_html=True)
 st.markdown('<p class="subtitle">Real-time detection of suspicious betting patterns on Polymarket</p>', unsafe_allow_html=True)
+
+# ============================================================================
+# Auto-Refresh Logic
+# ============================================================================
+if st.session_state.auto_refresh_enabled:
+    # Check how much time has passed since last refresh
+    time_since_refresh = (datetime.now() - st.session_state.last_refresh_time).total_seconds()
+
+    # Get refresh interval from session state
+    refresh_interval = st.session_state.refresh_interval
+
+    # Show countdown timer
+    time_remaining = max(0, refresh_interval - int(time_since_refresh))
+
+    if time_remaining > 0:
+        # Display countdown
+        col1, col2, col3 = st.columns([2, 1, 2])
+        with col2:
+            st.caption(f"🔄 Next refresh in {time_remaining}s")
+
+    # Trigger refresh if interval has passed
+    if time_since_refresh >= refresh_interval:
+        st.session_state.last_refresh_time = datetime.now()
+        time.sleep(0.1)  # Small delay to ensure UI updates
+        st.rerun()
+
+    # Use st.empty() to create a placeholder that will trigger rerun
+    # This makes the countdown actually count down
+    time.sleep(1)
+    st.rerun()
 
 # ============================================================================
 # Category Selection (Polymarket-style) - Always visible
