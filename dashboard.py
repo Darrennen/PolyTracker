@@ -842,19 +842,24 @@ with tab2:
                 
                 with col3:
                     st.markdown("**Wallet**")
-                    st.code(f"{row['wallet_address'][:10]}...{row['wallet_address'][-6:]}")
+                    # Display full address in copyable format
+                    st.code(row['wallet_address'], language=None)
                     if row['wallet_age_days'] is not None:
                         age_str = f"{row['wallet_age_days']}d"
                         st.caption(f"Age: {age_str}")
                     else:
                         st.caption("Age: Unknown", help="Could not determine wallet age. This may happen if the wallet has minimal on-chain activity or API rate limits were hit.")
-                
+
                 with col4:
                     st.markdown("**Actions**")
                     col_a, col_b = st.columns(2)
                     with col_a:
-                        if st.button("📊", key=f"scan_{row['id']}", help="View on Polygonscan"):
-                            st.markdown(f"[Open Polygonscan](https://polygonscan.com/address/{row['wallet_address']})")
+                        st.link_button(
+                            "📊",
+                            f"https://polymarket.com/profile/{row['wallet_address']}",
+                            help="View Polymarket profile",
+                            use_container_width=True
+                        )
                     with col_b:
                         if st.button("🔍", key=f"track_{row['id']}", help="Track this wallet"):
                             monitor.add_tracked_wallet(row['wallet_address'])
@@ -903,8 +908,8 @@ with tab3:
                     
                     with col2:
                         st.link_button(
-                            "Polygonscan",
-                            f"https://polygonscan.com/address/{result['wallet_address']}"
+                            "📊 Profile",
+                            f"https://polymarket.com/profile/{result['wallet_address']}"
                         )
                     
                     with col3:
@@ -938,8 +943,8 @@ with tab3:
                     
                     with col3:
                         st.link_button(
-                            "📊 View",
-                            f"https://polygonscan.com/address/{wallet['wallet_address']}"
+                            "📊 Profile",
+                            f"https://polymarket.com/profile/{wallet['wallet_address']}"
                         )
                     
                     with col4:
