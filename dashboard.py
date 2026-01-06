@@ -391,9 +391,57 @@ with st.sidebar:
         st.caption(f"🔍 Bets at ≤ {max_odds_cents}¢ on the dollar will be flagged")
     else:
         max_odds = 1.0
-    
+
+    st.markdown("##### 🏷️ Category Filter")
+    category_filter_enabled = st.checkbox("Enable category filter", value=False)
+
+    # Initialize filter variables
+    include_tag_ids = []
+    exclude_tag_ids = []
+
+    if category_filter_enabled:
+        filter_mode = st.radio(
+            "Filter mode",
+            ["Exclude categories", "Include only"],
+            help="Exclude: scan all EXCEPT selected. Include: scan ONLY selected."
+        )
+
+        # Common category options (tag IDs should match Polymarket API)
+        # These will be dynamically populated when monitor is initialized
+        category_options = {
+            "🏈 Sports": "sports",
+            "💰 Crypto": "crypto",
+            "🏛️ Politics": "politics",
+            "🎬 Entertainment": "entertainment",
+            "📰 News": "news",
+            "🔬 Science": "science",
+            "💼 Business": "business"
+        }
+
+        selected_categories = st.multiselect(
+            "Select categories",
+            options=list(category_options.keys()),
+            help="Choose categories to include or exclude"
+        )
+
+        # Store selected slugs for filtering
+        selected_slugs = [category_options[cat] for cat in selected_categories]
+
+        if filter_mode == "Exclude categories":
+            st.caption(f"🚫 Will skip: {', '.join(selected_slugs) if selected_slugs else 'none'}")
+            # These will be converted to tag IDs when scanning
+            st.session_state['exclude_categories'] = selected_slugs
+            st.session_state['include_categories'] = []
+        else:
+            st.caption(f"✅ Will only scan: {', '.join(selected_slugs) if selected_slugs else 'all'}")
+            st.session_state['include_categories'] = selected_slugs
+            st.session_state['exclude_categories'] = []
+    else:
+        st.session_state['exclude_categories'] = []
+        st.session_state['include_categories'] = []
+
     st.divider()
-    
+
     # -------------------------------------------------------------------------
     # Alert Configuration
     # -------------------------------------------------------------------------
@@ -467,13 +515,18 @@ with st.sidebar:
     # Initialize Monitor
     # -------------------------------------------------------------------------
     if st.button("🚀 Initialize Monitor", type="primary", use_container_width=True):
+        # Get category filter settings from session state
+        exclude_cats = st.session_state.get('exclude_categories', [])
+        include_cats = st.session_state.get('include_categories', [])
+
         config = DetectionConfig(
             wallet_age_days=wallet_age_days,
             min_bet_size=min_bet_size,
             max_odds=max_odds,
             check_wallet_age=wallet_age_enabled,
             check_bet_size=bet_size_enabled,
-            check_odds=odds_enabled
+            check_odds=odds_enabled,
+            categories=include_cats if include_cats else exclude_cats  # For legacy text filtering
         )
         
         st.session_state.monitor = PolymarketMonitor(
@@ -508,12 +561,21 @@ with st.sidebar:
                 if scan_type == "Quick (Recent Trades)":
                     stats = st.session_state.monitor.scan_recent_trades()
                 elif scan_type == "Full (All Markets)":
-                    stats = st.session_state.monitor.scan_markets()
+                    # Pass category filters for full market scan
+                    include_cats = st.session_state.get('include_categories', [])
+                    exclude_cats = st.session_state.get('exclude_categories', [])
+                    stats = st.session_state.monitor.scan_markets(
+                        categories=include_cats if include_cats else None
+                    )
                 else:
                     stats = st.session_state.monitor.scan_tracked_wallets()
-                
+
                 st.session_state.last_scan_time = datetime.now()
-                st.success(f"✓ Found {stats.get('suspicious_found', 0)} suspicious")
+                skipped = stats.get('events_skipped', 0)
+                msg = f"✓ Found {stats.get('suspicious_found', 0)} suspicious"
+                if skipped > 0:
+                    msg += f" (skipped {skipped} events by filter)"
+                st.success(msg)
                 st.rerun()
         else:
             st.warning("Initialize monitor first")
@@ -524,7 +586,7 @@ with st.sidebar:
     # Active filters summary
     st.divider()
     st.markdown("### 📋 Active Filters")
-    
+
     filters_active = []
     if wallet_age_enabled:
         filters_active.append(f"🕐 Age < {wallet_age_days}d")
@@ -532,7 +594,15 @@ with st.sidebar:
         filters_active.append(f"💵 Bet ≥ ${min_bet_size:,}")
     if odds_enabled:
         filters_active.append(f"📉 Price ≤ {max_odds_cents}¢")
-    
+
+    # Show category filter status
+    include_cats = st.session_state.get('include_categories', [])
+    exclude_cats = st.session_state.get('exclude_categories', [])
+    if include_cats:
+        filters_active.append(f"🏷️ Only: {', '.join(include_cats)}")
+    elif exclude_cats:
+        filters_active.append(f"🚫 Skip: {', '.join(exclude_cats)}")
+
     if filters_active:
         for f in filters_active:
             st.caption(f"✓ {f}")

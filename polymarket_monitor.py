@@ -38,7 +38,26 @@ class DetectionConfig:
     check_wallet_age: bool = True
     check_bet_size: bool = True
     check_odds: bool = True
+    # Tag-based category filtering
+    include_tag_ids: List[int] = field(default_factory=list)  # Only scan these tags (empty = all)
+    exclude_tag_ids: List[int] = field(default_factory=list)  # Exclude these tags
+    # Legacy text-based filtering (backup)
     categories: List[str] = field(default_factory=lambda: ["news", "crypto", "politics"])
+
+
+# Common Polymarket tag IDs (fetch dynamically with api.get_tags() for full list)
+class CommonTags:
+    """
+    Common Polymarket category tag IDs.
+    Use api.get_tags() to fetch the full dynamic list.
+    """
+    # These are example IDs - actual IDs should be fetched from API
+    POLITICS = 1
+    CRYPTO = 2
+    SPORTS = 3
+    POP_CULTURE = 4
+    BUSINESS = 5
+    SCIENCE = 6
 
 
 class PolymarketAPI:
@@ -293,7 +312,108 @@ class PolymarketAPI:
         except Exception as e:
             logger.error(f"Error fetching market {condition_id}: {e}")
             return None
-    
+
+    # =========================================================================
+    # Tags/Categories API
+    # =========================================================================
+
+    def get_tags(self) -> List[Dict]:
+        """
+        Get available tags/categories from Gamma API
+
+        Endpoint: GET https://gamma-api.polymarket.com/tags
+
+        Returns list of tags with:
+        - id: Tag ID for filtering
+        - label: Human-readable name
+        - slug: URL-friendly identifier
+        """
+        try:
+            url = f"{self.GAMMA_API}/tags"
+            response = requests.get(url, headers=self.headers, timeout=30)
+
+            if response.status_code == 200:
+                return response.json()
+            else:
+                logger.error(f"Tags API error: {response.status_code}")
+                return []
+
+        except Exception as e:
+            logger.error(f"Error fetching tags: {e}")
+            return []
+
+    def get_sports_tags(self) -> List[Dict]:
+        """
+        Get sports-specific tags with metadata
+
+        Endpoint: GET https://gamma-api.polymarket.com/sports
+        """
+        try:
+            url = f"{self.GAMMA_API}/sports"
+            response = requests.get(url, headers=self.headers, timeout=30)
+
+            if response.status_code == 200:
+                return response.json()
+            return []
+
+        except Exception as e:
+            logger.error(f"Error fetching sports tags: {e}")
+            return []
+
+    def get_events_by_tag(
+        self,
+        tag_id: int = None,
+        exclude_tag_ids: List[int] = None,
+        active: bool = True,
+        limit: int = 50,
+        offset: int = 0
+    ) -> List[Dict]:
+        """
+        Get events filtered by tag
+
+        Args:
+            tag_id: Include only events with this tag
+            exclude_tag_ids: Exclude events with these tags
+            active: Only active events
+            limit: Max results
+        """
+        try:
+            url = f"{self.GAMMA_API}/events"
+            params = {
+                "limit": limit,
+                "offset": offset,
+                "closed": "false" if active else "true"
+            }
+
+            if tag_id:
+                params["tag_id"] = tag_id
+
+            # Note: exclude_tag_id may need to be called multiple times
+            # or handled differently based on API support
+
+            response = requests.get(url, params=params, headers=self.headers, timeout=30)
+
+            if response.status_code == 200:
+                events = response.json()
+
+                # Client-side exclusion if API doesn't support multiple excludes
+                if exclude_tag_ids:
+                    filtered = []
+                    for event in events:
+                        event_tag_ids = [t.get('id') for t in event.get('tags', [])]
+                        if not any(tid in exclude_tag_ids for tid in event_tag_ids):
+                            filtered.append(event)
+                    return filtered
+
+                return events
+            else:
+                logger.error(f"Events by tag error: {response.status_code}")
+                return []
+
+        except Exception as e:
+            logger.error(f"Error fetching events by tag: {e}")
+            return []
+
     # =========================================================================
     # CLOB API - Orderbook/Pricing
     # =========================================================================
@@ -1006,40 +1126,88 @@ class PolymarketMonitor:
         logger.info(f"Tracked wallet scan complete: {stats}")
         return stats
     
-    def scan_markets(self, categories: List[str] = None) -> Dict:
+    def scan_markets(
+        self,
+        tag_id: int = None,
+        exclude_tag_ids: List[int] = None,
+        categories: List[str] = None
+    ) -> Dict:
         """
         Full scan: fetch markets, then get trades for each
         This is slower but more comprehensive
+
+        Args:
+            tag_id: Only scan markets with this tag ID (use api.get_tags() to see options)
+            exclude_tag_ids: Exclude markets with these tag IDs
+            categories: Legacy text-based filtering (fallback)
         """
         logger.info("Starting full market scan...")
-        
+
         stats = {
             "markets_scanned": 0,
             "trades_analyzed": 0,
             "suspicious_found": 0,
-            "alerts_sent": 0
+            "alerts_sent": 0,
+            "events_skipped": 0
         }
-        
+
+        # Use config defaults if not specified
+        if tag_id is None and self.config.include_tag_ids:
+            tag_id = self.config.include_tag_ids[0] if len(self.config.include_tag_ids) == 1 else None
+        if exclude_tag_ids is None:
+            exclude_tag_ids = self.config.exclude_tag_ids
+
         try:
-            # Get active events
-            events = self.api.get_events(active=True, limit=100)
-            
+            # Get active events - use tag filtering if specified
+            if tag_id:
+                events = self.api.get_events_by_tag(
+                    tag_id=tag_id,
+                    exclude_tag_ids=exclude_tag_ids,
+                    active=True,
+                    limit=100
+                )
+                logger.info(f"Fetched {len(events)} events for tag_id={tag_id}")
+            else:
+                events = self.api.get_events(active=True, limit=100)
+
+                # Apply exclusion filter client-side
+                if exclude_tag_ids:
+                    filtered_events = []
+                    for event in events:
+                        event_tag_ids = [t.get('id') for t in event.get('tags', [])]
+                        if not any(tid in exclude_tag_ids for tid in event_tag_ids):
+                            filtered_events.append(event)
+                        else:
+                            stats["events_skipped"] += 1
+                    events = filtered_events
+                    logger.info(f"Excluded {stats['events_skipped']} events by tag filter")
+
             for event in events:
                 markets = event.get("markets", [])
-                tags = [t.lower() for t in event.get("tags", [])]
-                
-                # Filter by categories if specified
-                if categories:
-                    if not any(cat.lower() in tags for cat in categories):
+
+                # Legacy text-based filtering (if no tag filtering used)
+                if categories and not tag_id and not exclude_tag_ids:
+                    event_tags = event.get("tags", [])
+                    # Handle both string tags and dict tags
+                    tag_labels = []
+                    for t in event_tags:
+                        if isinstance(t, dict):
+                            tag_labels.append(t.get('label', '').lower())
+                            tag_labels.append(t.get('slug', '').lower())
+                        else:
+                            tag_labels.append(str(t).lower())
+
+                    if not any(cat.lower() in tag_labels for cat in categories):
+                        stats["events_skipped"] += 1
                         continue
-                
+
                 for market in markets:
                     condition_id = market.get("conditionId") or market.get("id")
                     if not condition_id:
                         continue
-                    
+
                     stats["markets_scanned"] += 1
-                    
+
                     # Get trades for this market
                     trades = self.api.get_trades(
                         market=condition_id,
@@ -1047,26 +1215,26 @@ class PolymarketMonitor:
                         filter_amount=self.config.min_bet_size,
                         limit=100
                     )
-                    
+
                     stats["trades_analyzed"] += len(trades)
-                    
+
                     for trade in trades:
                         suspicious_data = self.analyze_trade(trade)
-                        
+
                         if suspicious_data:
                             stats["suspicious_found"] += 1
-                            
+
                             if self.save_suspicious_trade(suspicious_data):
                                 results = self.alert_manager.send_alert(suspicious_data)
                                 if any(results.values()):
                                     stats["alerts_sent"] += 1
-                    
+
                     time.sleep(1)  # Rate limiting
-            
+
             self._log_scan(stats)
             logger.info(f"Full scan complete: {stats}")
             return stats
-            
+
         except Exception as e:
             logger.error(f"Full scan error: {e}")
             return stats
@@ -1159,7 +1327,34 @@ class PolymarketMonitor:
         except Exception as e:
             logger.error(f"Error fetching wallet stats: {e}")
             return None
-    
+
+    def get_available_tags(self, include_sports: bool = True) -> List[Dict]:
+        """
+        Get all available category tags for filtering
+
+        Returns list of dicts with:
+        - id: Tag ID to use in filters
+        - label: Human-readable name
+        - slug: URL-friendly identifier
+        - type: 'general' or 'sports'
+        """
+        tags = []
+
+        # Get general tags
+        general_tags = self.api.get_tags()
+        for tag in general_tags:
+            tag['type'] = 'general'
+            tags.append(tag)
+
+        # Get sports tags
+        if include_sports:
+            sports_tags = self.api.get_sports_tags()
+            for tag in sports_tags:
+                tag['type'] = 'sports'
+                tags.append(tag)
+
+        return tags
+
     def get_dashboard_stats(self) -> Dict:
         """Get aggregate stats for dashboard"""
         try:
