@@ -1483,22 +1483,20 @@ with tab2:
                 risk_indicator = "🟣 WHALE"
 
             # Create bento card for each trade
-            st.markdown(f'''
-            <div class="{alert_class}">
-                <div style="margin-bottom: 1rem;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-                        <div style="font-size: 1.1rem; font-weight: 700; color: #e2e8f0; font-family: 'Orbitron', sans-serif; flex: 1;">
-                            {row['market_question'][:100]}
-                        </div>
-                        <span class="{'badge-yes' if row['outcome'] == 'YES' else 'badge-no'}">{row['outcome']}</span>
+            st.markdown(f"""
+            <div class="{alert_class}" style="margin-bottom: 1rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                    <div style="font-size: 1.1rem; font-weight: 700; color: #e2e8f0; font-family: 'Orbitron', sans-serif; flex: 1; margin-right: 1rem;">
+                        {row['market_question'][:100]}
                     </div>
-                    {f'<div style="color: #ef4444; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.5rem;">{risk_indicator}</div>' if risk_indicator else ''}
-                    <div style="color: #64748b; font-size: 0.8rem; font-family: 'JetBrains Mono', monospace;">
-                        Category: {row['market_category']}
-                    </div>
+                    <span class="{'badge-yes' if row['outcome'] == 'YES' else 'badge-no'}">{row['outcome']}</span>
+                </div>
+                {f'<div style="color: #ef4444; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.5rem;">{risk_indicator}</div>' if risk_indicator else ''}
+                <div style="color: #64748b; font-size: 0.8rem; font-family: JetBrains Mono, monospace;">
+                    Category: {row['market_category']}
                 </div>
             </div>
-            ''', unsafe_allow_html=True)
+            """, unsafe_allow_html=True)
 
             # Trade details in columns
             col1, col2, col3, col4 = st.columns(4)
