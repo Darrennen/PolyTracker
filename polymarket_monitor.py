@@ -1103,8 +1103,19 @@ class PolymarketMonitor:
             
             for event in events:
                 markets = event.get("markets", [])
-                tags = [t.lower() for t in event.get("tags", [])]
-                
+
+                # Tags can be strings or dicts - handle both cases
+                raw_tags = event.get("tags", [])
+                tags = []
+                for t in raw_tags:
+                    if isinstance(t, str):
+                        tags.append(t.lower())
+                    elif isinstance(t, dict):
+                        # If tag is a dict, try to get the 'label' or 'name' field
+                        tag_str = t.get('label') or t.get('name') or t.get('slug') or ''
+                        if tag_str:
+                            tags.append(tag_str.lower())
+
                 # Filter by categories if specified
                 if categories:
                     if not any(cat.lower() in tags for cat in categories):
