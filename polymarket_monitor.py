@@ -15,6 +15,8 @@ from typing import List, Dict, Optional, Tuple
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
+import hashlib
+import secrets
 
 # Configure logging
 logging.basicConfig(
@@ -676,6 +678,19 @@ class PolymarketMonitor:
                 last_activity TEXT
             )
         """)
+
+        # Users table for authentication
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL,
+                email TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                last_login TEXT,
+                is_active INTEGER DEFAULT 1
+            )
+        """)
         
         # Wallet analysis
         cursor.execute("""
@@ -730,7 +745,132 @@ class PolymarketMonitor:
         conn.commit()
         conn.close()
         logger.info("Database initialized")
-    
+
+    # =========================================================================
+    # User Authentication Methods
+    # =========================================================================
+
+    @staticmethod
+    def hash_password(password: str) -> str:
+        """Hash password using SHA-256 with salt"""
+        salt = secrets.token_hex(16)
+        pwd_hash = hashlib.sha256((password + salt).encode()).hexdigest()
+        return f"{salt}${pwd_hash}"
+
+    @staticmethod
+    def verify_password(password: str, password_hash: str) -> bool:
+        """Verify password against hash"""
+        try:
+            salt, pwd_hash = password_hash.split('$')
+            return hashlib.sha256((password + salt).encode()).hexdigest() == pwd_hash
+        except:
+            return False
+
+    def create_user(self, username: str, email: str, password: str) -> Tuple[bool, str]:
+        """
+        Create a new user
+        Returns: (success, message)
+        """
+        try:
+            # Validate inputs
+            if len(username) < 3:
+                return False, "Username must be at least 3 characters"
+            if len(password) < 6:
+                return False, "Password must be at least 6 characters"
+            if '@' not in email:
+                return False, "Invalid email address"
+
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+
+            # Check if username or email already exists
+            cursor.execute(
+                "SELECT username, email FROM users WHERE username = ? OR email = ?",
+                (username, email)
+            )
+            existing = cursor.fetchone()
+
+            if existing:
+                conn.close()
+                if existing[0] == username:
+                    return False, "Username already exists"
+                else:
+                    return False, "Email already registered"
+
+            # Create user
+            password_hash = self.hash_password(password)
+            cursor.execute("""
+                INSERT INTO users (username, email, password_hash, created_at, is_active)
+                VALUES (?, ?, ?, ?, 1)
+            """, (username, email, password_hash, datetime.now().isoformat()))
+
+            conn.commit()
+            conn.close()
+            logger.info(f"User created: {username}")
+            return True, "Account created successfully!"
+
+        except Exception as e:
+            logger.error(f"Error creating user: {e}")
+            return False, f"Error: {str(e)}"
+
+    def authenticate_user(self, username: str, password: str) -> Tuple[bool, Optional[Dict]]:
+        """
+        Authenticate user credentials
+        Returns: (success, user_data)
+        """
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                SELECT id, username, email, password_hash, is_active
+                FROM users
+                WHERE username = ?
+            """, (username,))
+
+            row = cursor.fetchone()
+
+            if not row:
+                conn.close()
+                return False, None
+
+            user_id, username, email, password_hash, is_active = row
+
+            if not is_active:
+                conn.close()
+                return False, None
+
+            if not self.verify_password(password, password_hash):
+                conn.close()
+                return False, None
+
+            # Update last login
+            cursor.execute("""
+                UPDATE users
+                SET last_login = ?
+                WHERE id = ?
+            """, (datetime.now().isoformat(), user_id))
+
+            conn.commit()
+            conn.close()
+
+            user_data = {
+                "id": user_id,
+                "username": username,
+                "email": email
+            }
+
+            logger.info(f"User authenticated: {username}")
+            return True, user_data
+
+        except Exception as e:
+            logger.error(f"Error authenticating user: {e}")
+            return False, None
+
+    # =========================================================================
+    # Wallet Tracking Methods
+    # =========================================================================
+
     def add_tracked_wallet(
         self,
         wallet_address: str,
