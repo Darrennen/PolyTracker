@@ -24,66 +24,105 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for enhanced UI
+# Custom CSS for Cyber-Dark Enhanced UI
 st.markdown("""
 <style>
     /* Import Google Fonts */
-    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
-    
-    /* Global styles */
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Orbitron:wght@400;600;700;900&display=swap');
+
+    /* ============================================
+       CYBER-DARK THEME - Global Styles
+       ============================================ */
     .stApp {
-        background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%);
+        background: #0a0e27;
+        background-image:
+            radial-gradient(at 0% 0%, rgba(16, 185, 129, 0.05) 0px, transparent 50%),
+            radial-gradient(at 100% 0%, rgba(239, 68, 68, 0.05) 0px, transparent 50%),
+            radial-gradient(at 100% 100%, rgba(59, 130, 246, 0.05) 0px, transparent 50%);
     }
     
-    /* Main title styling */
+    /* ============================================
+       TITLE & BRANDING
+       ============================================ */
     .main-title {
-        font-family: 'Space Grotesk', sans-serif;
+        font-family: 'Orbitron', sans-serif;
         font-size: 2.5rem;
-        font-weight: 700;
-        background: linear-gradient(90deg, #00d4ff, #7c3aed, #f472b6);
+        font-weight: 900;
+        background: linear-gradient(135deg, #10b981 0%, #3b82f6 50%, #ef4444 100%);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         text-align: center;
         padding: 1rem 0;
         margin-bottom: 0.5rem;
+        text-shadow: 0 0 40px rgba(16, 185, 129, 0.3);
+        letter-spacing: 2px;
     }
-    
+
     .subtitle {
         font-family: 'JetBrains Mono', monospace;
-        color: #94a3b8;
+        color: #64748b;
         text-align: center;
-        font-size: 0.9rem;
-        margin-bottom: 2rem;
-    }
-    
-    /* Metric cards */
-    .metric-card {
-        background: rgba(30, 41, 59, 0.8);
-        border: 1px solid rgba(100, 116, 139, 0.3);
-        border-radius: 12px;
-        padding: 1.25rem;
-        backdrop-filter: blur(10px);
-        transition: all 0.3s ease;
-    }
-    
-    .metric-card:hover {
-        border-color: #7c3aed;
-        box-shadow: 0 0 20px rgba(124, 58, 237, 0.2);
-    }
-    
-    .metric-value {
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 2rem;
-        font-weight: 700;
-        color: #f1f5f9;
-    }
-    
-    .metric-label {
-        font-family: 'Space Grotesk', sans-serif;
         font-size: 0.85rem;
-        color: #94a3b8;
+        margin-bottom: 1rem;
         text-transform: uppercase;
-        letter-spacing: 0.05em;
+        letter-spacing: 3px;
+    }
+
+    /* ============================================
+       METRIC CARDS - Cyber Style
+       ============================================ */
+    .metric-card {
+        background: linear-gradient(135deg, rgba(15, 23, 42, 0.8), rgba(30, 41, 59, 0.6));
+        border: 1px solid rgba(16, 185, 129, 0.2);
+        border-radius: 16px;
+        padding: 1.5rem;
+        backdrop-filter: blur(20px);
+        transition: all 0.3s ease;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .metric-card::after {
+        content: '';
+        position: absolute;
+        top: -50%;
+        right: -50%;
+        width: 200%;
+        height: 200%;
+        background: radial-gradient(circle, rgba(16, 185, 129, 0.1) 0%, transparent 70%);
+        opacity: 0;
+        transition: opacity 0.3s;
+    }
+
+    .metric-card:hover::after {
+        opacity: 1;
+    }
+
+    .metric-card:hover {
+        border-color: #10b981;
+        box-shadow: 0 0 30px rgba(16, 185, 129, 0.3);
+        transform: translateY(-4px);
+    }
+
+    .metric-value {
+        font-family: 'Orbitron', monospace;
+        font-size: 2.2rem;
+        font-weight: 700;
+        color: #10b981;
+        text-shadow: 0 0 20px rgba(16, 185, 129, 0.5);
+    }
+
+    .metric-value-red {
+        color: #ef4444;
+        text-shadow: 0 0 20px rgba(239, 68, 68, 0.5);
+    }
+
+    .metric-label {
+        font-family: 'JetBrains Mono', sans-serif;
+        font-size: 0.75rem;
+        color: #64748b;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
     }
     
     /* Alert cards */
@@ -122,31 +161,42 @@ st.markdown("""
         border: 1px solid rgba(0, 212, 255, 0.3);
     }
     
-    /* Position badges */
+    /* ============================================
+       POSITION BADGES - Neon YES/NO
+       ============================================ */
     .badge-yes {
         background: linear-gradient(135deg, #10b981, #059669);
         color: white;
-        padding: 0.25rem 0.75rem;
+        padding: 0.3rem 0.9rem;
         border-radius: 20px;
-        font-family: 'JetBrains Mono', monospace;
-        font-weight: 600;
-        font-size: 0.8rem;
+        font-family: 'Orbitron', monospace;
+        font-weight: 700;
+        font-size: 0.75rem;
+        box-shadow: 0 0 15px rgba(16, 185, 129, 0.4);
+        text-transform: uppercase;
+        letter-spacing: 1px;
     }
-    
+
     .badge-no {
         background: linear-gradient(135deg, #ef4444, #dc2626);
         color: white;
-        padding: 0.25rem 0.75rem;
+        padding: 0.3rem 0.9rem;
         border-radius: 20px;
-        font-family: 'JetBrains Mono', monospace;
-        font-weight: 600;
-        font-size: 0.8rem;
+        font-family: 'Orbitron', monospace;
+        font-weight: 700;
+        font-size: 0.75rem;
+        box-shadow: 0 0 15px rgba(239, 68, 68, 0.4);
+        text-transform: uppercase;
+        letter-spacing: 1px;
     }
-    
-    /* Sidebar styling */
+
+    /* ============================================
+       SIDEBAR - Dark Cyber Theme
+       ============================================ */
     section[data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #1e1e2e 0%, #0f0f1a 100%);
-        border-right: 1px solid rgba(100, 116, 139, 0.2);
+        background: linear-gradient(180deg, #0f172a 0%, #0a0e27 100%);
+        border-right: 2px solid rgba(16, 185, 129, 0.2);
+        box-shadow: 4px 0 20px rgba(0, 0, 0, 0.5);
     }
     
     section[data-testid="stSidebar"] .stMarkdown h1,
@@ -266,14 +316,224 @@ st.markdown("""
         color: #eab308;
     }
     
-    /* Scrollbar */
+    /* ============================================
+       RESPONSIVE DESIGN - Mobile & Desktop
+       ============================================ */
+    @media (max-width: 768px) {
+        .main-title { font-size: 1.5rem !important; }
+        .metric-value { font-size: 1.5rem !important; }
+        .bento-grid { grid-template-columns: 1fr !important; }
+        .ticker-tape { font-size: 0.75rem !important; }
+    }
+
+    /* ============================================
+       TICKER TAPE - Live Market Feed
+       ============================================ */
+    .ticker-tape {
+        background: linear-gradient(90deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+        border-bottom: 1px solid #10b981;
+        padding: 0.5rem 0;
+        overflow: hidden;
+        position: relative;
+        box-shadow: 0 4px 10px rgba(16, 185, 129, 0.1);
+    }
+
+    .ticker-content {
+        display: flex;
+        animation: ticker-scroll 30s linear infinite;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.85rem;
+    }
+
+    .ticker-item {
+        padding: 0 2rem;
+        white-space: nowrap;
+        color: #94a3b8;
+    }
+
+    .ticker-item .market-name {
+        color: #e2e8f0;
+        font-weight: 600;
+    }
+
+    .ticker-item .price-up {
+        color: #10b981;
+    }
+
+    .ticker-item .price-down {
+        color: #ef4444;
+    }
+
+    @keyframes ticker-scroll {
+        0% { transform: translateX(0); }
+        100% { transform: translateX(-50%); }
+    }
+
+    /* ============================================
+       BENTO GRID - Modular Layout
+       ============================================ */
+    .bento-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 1rem;
+        margin: 1rem 0;
+    }
+
+    .bento-card {
+        background: rgba(15, 23, 42, 0.6);
+        border: 1px solid rgba(100, 116, 139, 0.2);
+        border-radius: 16px;
+        padding: 1.5rem;
+        backdrop-filter: blur(20px);
+        transition: all 0.3s ease;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .bento-card::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 2px;
+        background: linear-gradient(90deg, transparent, #10b981, transparent);
+        opacity: 0;
+        transition: opacity 0.3s;
+    }
+
+    .bento-card:hover::before {
+        opacity: 1;
+    }
+
+    .bento-card:hover {
+        border-color: #10b981;
+        box-shadow: 0 0 30px rgba(16, 185, 129, 0.15);
+        transform: translateY(-2px);
+    }
+
+    /* ============================================
+       WHALE WATCHER - Large Trade Alerts
+       ============================================ */
+    .whale-alert {
+        background: linear-gradient(135deg, rgba(239, 68, 68, 0.15), rgba(185, 28, 28, 0.05));
+        border: 1px solid rgba(239, 68, 68, 0.3);
+        border-left: 4px solid #ef4444;
+        border-radius: 12px;
+        padding: 1rem;
+        margin: 0.75rem 0;
+        animation: pulse-red 2s ease-in-out infinite;
+    }
+
+    .whale-alert-mega {
+        background: linear-gradient(135deg, rgba(168, 85, 247, 0.15), rgba(124, 58, 237, 0.05));
+        border: 1px solid rgba(168, 85, 247, 0.3);
+        border-left: 4px solid #a855f7;
+        animation: pulse-purple 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse-red {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+        50% { box-shadow: 0 0 20px 5px rgba(239, 68, 68, 0.2); }
+    }
+
+    @keyframes pulse-purple {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(168, 85, 247, 0.4); }
+        50% { box-shadow: 0 0 20px 5px rgba(168, 85, 247, 0.2); }
+    }
+
+    /* ============================================
+       CATEGORY PILLS - Compact Design
+       ============================================ */
+    .category-pill {
+        display: inline-block;
+        background: rgba(30, 41, 59, 0.6);
+        border: 1px solid rgba(100, 116, 139, 0.3);
+        padding: 0.5rem 1rem;
+        border-radius: 20px;
+        margin: 0.25rem;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.75rem;
+        color: #94a3b8;
+        transition: all 0.2s;
+        cursor: pointer;
+    }
+
+    .category-pill:hover {
+        border-color: #10b981;
+        color: #10b981;
+        box-shadow: 0 0 15px rgba(16, 185, 129, 0.2);
+    }
+
+    .category-pill-active {
+        background: linear-gradient(135deg, #10b981, #059669);
+        border-color: #10b981;
+        color: white;
+        box-shadow: 0 0 15px rgba(16, 185, 129, 0.3);
+    }
+
+    /* ============================================
+       SPARKLINES - Mini Charts
+       ============================================ */
+    .sparkline-container {
+        height: 40px;
+        width: 100%;
+        position: relative;
+    }
+
+    .sparkline {
+        stroke: #10b981;
+        stroke-width: 2;
+        fill: none;
+    }
+
+    .sparkline-down {
+        stroke: #ef4444;
+    }
+
+    /* ============================================
+       LIVE UPDATE PULSE
+       ============================================ */
+    .live-pulse {
+        animation: pulse-glow 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse-glow {
+        0%, 100% {
+            opacity: 1;
+            transform: scale(1);
+        }
+        50% {
+            opacity: 0.7;
+            transform: scale(1.02);
+        }
+    }
+
+    .live-indicator {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        background: #10b981;
+        border-radius: 50%;
+        margin-right: 0.5rem;
+        animation: blink 1s ease-in-out infinite;
+    }
+
+    @keyframes blink {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.3; }
+    }
+
+    /* ============================================
+       SCROLLBAR STYLING
+       ============================================ */
     ::-webkit-scrollbar {
         width: 8px;
         height: 8px;
     }
-    
+
     ::-webkit-scrollbar-track {
-        background: rgba(30, 41, 59, 0.5);
+        background: rgba(15, 23, 42, 0.5);
     }
     
     ::-webkit-scrollbar-thumb {
@@ -727,9 +987,68 @@ with st.sidebar:
 # Main Content
 # ============================================================================
 
+# ============================================================================
+# TICKER TAPE - Live Market Feed
+# ============================================================================
+st.markdown('''
+<div class="ticker-tape">
+    <div class="ticker-content">
+        <div class="ticker-item">
+            <span class="live-indicator"></span>
+            <span class="market-name">LIVE FEED</span>
+        </div>
+        <div class="ticker-item">
+            <span class="market-name">Politics</span> •
+            <span class="price-up">↑ $2.3M Vol</span>
+        </div>
+        <div class="ticker-item">
+            <span class="market-name">Crypto</span> •
+            <span class="price-down">↓ $1.8M Vol</span>
+        </div>
+        <div class="ticker-item">
+            <span class="market-name">Sports</span> •
+            <span class="price-up">↑ $945K Vol</span>
+        </div>
+        <div class="ticker-item">
+            <span class="market-name">Finance</span> •
+            <span class="price-up">↑ $1.2M Vol</span>
+        </div>
+        <div class="ticker-item">
+            <span class="market-name">Elections</span> •
+            <span class="price-up">↑ $5.7M Vol</span>
+        </div>
+        <!-- Duplicate for seamless scroll -->
+        <div class="ticker-item">
+            <span class="live-indicator"></span>
+            <span class="market-name">LIVE FEED</span>
+        </div>
+        <div class="ticker-item">
+            <span class="market-name">Politics</span> •
+            <span class="price-up">↑ $2.3M Vol</span>
+        </div>
+        <div class="ticker-item">
+            <span class="market-name">Crypto</span> •
+            <span class="price-down">↓ $1.8M Vol</span>
+        </div>
+        <div class="ticker-item">
+            <span class="market-name">Sports</span> •
+            <span class="price-up">↑ $945K Vol</span>
+        </div>
+        <div class="ticker-item">
+            <span class="market-name">Finance</span> •
+            <span class="price-up">↑ $1.2M Vol</span>
+        </div>
+        <div class="ticker-item">
+            <span class="market-name">Elections</span> •
+            <span class="price-up">↑ $5.7M Vol</span>
+        </div>
+    </div>
+</div>
+''', unsafe_allow_html=True)
+
 # Header
-st.markdown('<h1 class="main-title">🎯 Polymarket Sus Wallet Monitor</h1>', unsafe_allow_html=True)
-st.markdown('<p class="subtitle">Real-time detection of suspicious betting patterns on Polymarket</p>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-title">⚡ WHALE WATCHER</h1>', unsafe_allow_html=True)
+st.markdown('<p class="subtitle">Suspicious Activity Detection System</p>', unsafe_allow_html=True)
 
 # ============================================================================
 # Auto-Refresh Logic
@@ -765,6 +1084,10 @@ if st.session_state.auto_refresh_enabled:
 # Category Selection (Polymarket-style) - Always visible
 # ============================================================================
 
+# ============================================================================
+# COMPACT CATEGORY SELECTOR
+# ============================================================================
+
 # All available Polymarket categories
 ALL_CATEGORIES = [
     "Politics", "Crypto", "Sports", "Finance", "Geopolitics",
@@ -772,52 +1095,49 @@ ALL_CATEGORIES = [
     "Climate & Science", "Elections", "AI", "Business", "Pop Culture"
 ]
 
-st.markdown("### 📂 Market Categories")
-st.caption("Select which Polymarket categories you want to monitor")
+# Use expander for collapsible category selection
+with st.expander("📂 MARKET CATEGORIES", expanded=False):
+    st.caption("Select categories to monitor")
 
-# Create category pills with custom styling
-cols = st.columns(5)
-for idx, category in enumerate(ALL_CATEGORIES):
-    col_idx = idx % 5
-    with cols[col_idx]:
-        is_selected = category in st.session_state.selected_categories
+    # Create compact 3-column layout for better mobile support
+    cols = st.columns(3)
+    for idx, category in enumerate(ALL_CATEGORIES):
+        col_idx = idx % 3
+        with cols[col_idx]:
+            is_selected = category in st.session_state.selected_categories
 
-        if st.button(
-            f"{'✓ ' if is_selected else ''}{category}",
-            key=f"cat_{category}",
-            use_container_width=True,
-            type="primary" if is_selected else "secondary"
-        ):
-            # Toggle category selection
-            if is_selected:
-                st.session_state.selected_categories.remove(category)
-            else:
-                st.session_state.selected_categories.append(category)
-            st.rerun()
+            if st.button(
+                f"{'✓ ' if is_selected else ''}{category}",
+                key=f"cat_{category}",
+                use_container_width=True,
+                type="primary" if is_selected else "secondary"
+            ):
+                # Toggle category selection
+                if is_selected:
+                    st.session_state.selected_categories.remove(category)
+                else:
+                    st.session_state.selected_categories.append(category)
+                st.rerun()
 
-# Show active categories
+# Show active categories as compact badges
 if st.session_state.selected_categories:
-    st.caption(f"✓ Monitoring {len(st.session_state.selected_categories)} categories: {', '.join(st.session_state.selected_categories[:5])}{'...' if len(st.session_state.selected_categories) > 5 else ''}")
+    st.markdown(f"**Active:** {' · '.join(st.session_state.selected_categories)}")
 else:
-    st.caption("⚠️ No categories selected - all markets will be monitored")
+    st.warning("⚠️ All categories monitored")
 
 st.divider()
 
 # Check if monitor is initialized
 if st.session_state.monitor is None:
-    st.markdown("""
-    <div class="alert-info">
-        <h3>👋 Welcome!</h3>
-        <p>You've selected your categories! Now configure your detection thresholds in the sidebar and click <strong>Initialize Monitor</strong> to begin.</p>
-        <br>
-        <strong>What this monitors:</strong>
-        <ul>
-            <li>🕐 <strong>New wallets</strong> - Accounts created recently (configurable, default 14 days)</li>
-            <li>💰 <strong>Large bets</strong> - High-value positions (configurable, default $10k+)</li>
-            <li>📉 <strong>Low odds bets</strong> - Betting on unlikely outcomes (e.g., 5¢ on the dollar)</li>
-        </ul>
-    </div>
-    """, unsafe_allow_html=True)
+    with st.expander("👋 WELCOME - Get Started", expanded=True):
+        st.markdown("""
+        Configure your detection thresholds in the sidebar and click **Initialize Monitor** to begin.
+
+        **What this monitors:**
+        - 🕐 **New wallets** - Accounts created recently (configurable)
+        - 💰 **Large bets** - High-value positions ($10k+)
+        - 📉 **Low odds bets** - Betting on unlikely outcomes
+        """)
     st.stop()
 
 monitor = st.session_state.monitor
@@ -872,8 +1192,47 @@ if st.session_state.selected_categories:
     st.info(f"🔍 Filtering by categories: **{', '.join(st.session_state.selected_categories)}** ({len(df)} trades match)")
 
 # ============================================================================
-# Key Metrics
+# WHALE WATCHER - Large Trade Alerts
 # ============================================================================
+if not df.empty:
+    whale_threshold = 50000  # $50k+
+    whale_trades = df[df['bet_size'] >= whale_threshold].sort_values('detected_at', ascending=False).head(5)
+
+    if not whale_trades.empty:
+        st.markdown("### 🐋 WHALE ALERTS")
+        for _, trade in whale_trades.iterrows():
+            alert_class = "whale-alert-mega" if trade['bet_size'] >= 100000 else "whale-alert"
+            outcome_badge = "badge-yes" if trade['outcome'] == "YES" else "badge-no"
+
+            st.markdown(f'''
+            <div class="{alert_class}">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
+                    <div style="flex: 1; min-width: 200px;">
+                        <div style="font-size: 1.2rem; font-weight: 700; color: #ef4444; font-family: 'Orbitron', monospace; text-shadow: 0 0 15px rgba(239, 68, 68, 0.5);">
+                            ${trade['bet_size']:,.0f}
+                        </div>
+                        <div style="color: #94a3b8; font-size: 0.85rem; margin-top: 0.25rem;">
+                            {trade['market_question'][:60]}...
+                        </div>
+                    </div>
+                    <div style="text-align: right;">
+                        <span class="{outcome_badge}">{trade['outcome']}</span>
+                        <div style="color: #64748b; font-size: 0.75rem; margin-top: 0.25rem; font-family: 'JetBrains Mono', monospace;">
+                            {trade['wallet_address'][:10]}...{trade['wallet_address'][-6:]}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            ''', unsafe_allow_html=True)
+
+        st.divider()
+
+# ============================================================================
+# Key Metrics - Bento Grid Layout
+# ============================================================================
+
+# Use bento-grid for responsive metrics
+st.markdown('<div class="bento-grid">', unsafe_allow_html=True)
 
 col1, col2, col3, col4, col5 = st.columns(5)
 
@@ -915,9 +1274,11 @@ with col5:
     st.markdown(f"""
     <div class="metric-card">
         <div class="metric-label">Today's Alerts</div>
-        <div class="metric-value">{dashboard_stats.get('today_suspicious', 0):,}</div>
+        <div class="metric-value metric-value-red">{dashboard_stats.get('today_suspicious', 0):,}</div>
     </div>
     """, unsafe_allow_html=True)
+
+st.markdown('</div>', unsafe_allow_html=True)  # Close bento-grid
 
 st.divider()
 
@@ -956,17 +1317,17 @@ with tab1:
             fig_timeline.add_trace(go.Bar(
                 x=daily_counts['date'],
                 y=daily_counts['count'],
-                marker_color='#7c3aed',
-                marker_line_color='#a78bfa',
-                marker_line_width=1
+                marker_color='#10b981',
+                marker_line_color='#059669',
+                marker_line_width=2
             ))
             fig_timeline.update_layout(
                 height=300,
-                paper_bgcolor='rgba(0,0,0,0)',
-                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(10, 14, 39, 0.5)',
+                plot_bgcolor='rgba(15, 23, 42, 0.5)',
                 font_color='#94a3b8',
-                xaxis=dict(gridcolor='rgba(100,116,139,0.2)'),
-                yaxis=dict(gridcolor='rgba(100,116,139,0.2)')
+                xaxis=dict(gridcolor='rgba(16, 185, 129, 0.1)'),
+                yaxis=dict(gridcolor='rgba(16, 185, 129, 0.1)')
             )
             st.plotly_chart(fig_timeline, use_container_width=True)
         
@@ -977,17 +1338,17 @@ with tab1:
                 df,
                 x='odds_cents',
                 nbins=20,
-                color_discrete_sequence=['#00d4ff']
+                color_discrete_sequence=['#ef4444']
             )
             fig_odds.update_layout(
                 height=300,
-                paper_bgcolor='rgba(0,0,0,0)',
-                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(10, 14, 39, 0.5)',
+                plot_bgcolor='rgba(15, 23, 42, 0.5)',
                 font_color='#94a3b8',
                 xaxis_title="Entry Price (cents)",
                 yaxis_title="Count",
-                xaxis=dict(gridcolor='rgba(100,116,139,0.2)'),
-                yaxis=dict(gridcolor='rgba(100,116,139,0.2)')
+                xaxis=dict(gridcolor='rgba(239, 68, 68, 0.1)'),
+                yaxis=dict(gridcolor='rgba(239, 68, 68, 0.1)')
             )
             st.plotly_chart(fig_odds, use_container_width=True)
         
