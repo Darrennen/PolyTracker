@@ -300,6 +300,9 @@ if 'selected_wallet' not in st.session_state:
     st.session_state.selected_wallet = None
 if 'config' not in st.session_state:
     st.session_state.config = DetectionConfig()
+if 'selected_categories' not in st.session_state:
+    # Default categories similar to Polymarket
+    st.session_state.selected_categories = ["Politics", "Crypto", "Sports", "Finance"]
 
 
 # ============================================================================
@@ -592,6 +595,48 @@ if st.session_state.monitor is None:
     st.stop()
 
 monitor = st.session_state.monitor
+
+# ============================================================================
+# Category Selection (Polymarket-style)
+# ============================================================================
+
+# All available Polymarket categories
+ALL_CATEGORIES = [
+    "Politics", "Crypto", "Sports", "Finance", "Geopolitics",
+    "Earnings", "Tech", "Culture", "World", "Economy",
+    "Climate & Science", "Elections", "AI", "Business", "Pop Culture"
+]
+
+st.markdown("### 📂 Market Categories")
+st.caption("Select which Polymarket categories you want to monitor")
+
+# Create category pills with custom styling
+cols = st.columns(5)
+for idx, category in enumerate(ALL_CATEGORIES):
+    col_idx = idx % 5
+    with cols[col_idx]:
+        is_selected = category in st.session_state.selected_categories
+
+        if st.button(
+            f"{'✓ ' if is_selected else ''}{category}",
+            key=f"cat_{category}",
+            use_container_width=True,
+            type="primary" if is_selected else "secondary"
+        ):
+            # Toggle category selection
+            if is_selected:
+                st.session_state.selected_categories.remove(category)
+            else:
+                st.session_state.selected_categories.append(category)
+            st.rerun()
+
+# Show active categories
+if st.session_state.selected_categories:
+    st.caption(f"✓ Monitoring {len(st.session_state.selected_categories)} categories: {', '.join(st.session_state.selected_categories[:5])}{'...' if len(st.session_state.selected_categories) > 5 else ''}")
+else:
+    st.caption("⚠️ No categories selected - all markets will be monitored")
+
+st.divider()
 
 # Get data
 suspicious_trades = monitor.get_suspicious_trades(limit=1000)
@@ -1026,16 +1071,44 @@ with tab4:
     st.divider()
 
     if search_mode == "Browse Active Markets":
+        # Show active category selection
+        if st.session_state.selected_categories:
+            st.info(f"📂 Filtering by selected categories: {', '.join(st.session_state.selected_categories)}")
+        else:
+            st.warning("⚠️ No categories selected - showing all markets")
+
         # Fetch active markets from API
         with st.spinner("Loading markets..."):
-            events = monitor.api.get_events(active=True, limit=50)
+            events = monitor.api.get_events(active=True, limit=100)
 
         if events:
-            st.markdown(f"##### Found {len(events)} active events")
-
-            # Category filter
-            all_categories = set()
+            # Filter events by selected categories first
+            filtered_events = []
             for event in events:
+                # Extract event tags
+                event_tags = []
+                raw_tags = event.get("tags", [])
+                for t in raw_tags:
+                    if isinstance(t, str):
+                        event_tags.append(t)
+                    elif isinstance(t, dict):
+                        tag_str = t.get('label') or t.get('name') or t.get('slug')
+                        if tag_str:
+                            event_tags.append(tag_str)
+
+                # Check if event matches selected categories
+                if st.session_state.selected_categories:
+                    if any(cat in event_tags for cat in st.session_state.selected_categories):
+                        filtered_events.append(event)
+                else:
+                    # No categories selected, show all
+                    filtered_events.append(event)
+
+            st.markdown(f"##### Found {len(filtered_events)} matching events")
+
+            # Additional category filter within results
+            all_categories = set()
+            for event in filtered_events:
                 raw_tags = event.get("tags", [])
                 for t in raw_tags:
                     if isinstance(t, str):
@@ -1045,22 +1118,28 @@ with tab4:
                         if tag_str:
                             all_categories.add(tag_str)
 
-            category_filter = st.multiselect(
-                "Filter by category",
+            additional_filter = st.multiselect(
+                "Further filter within results",
                 sorted(list(all_categories)),
-                default=[]
+                default=[],
+                help="Narrow down results within your selected categories"
             )
 
             st.divider()
 
             # Display markets
-            for event in events[:20]:  # Limit to 20 for performance
+            markets_shown = 0
+            for event in filtered_events:
+                if markets_shown >= 20:  # Limit display
+                    st.info(f"Showing first 20 markets. {len(filtered_events) - 20} more available.")
+                    break
+
                 markets = event.get("markets", [])
                 if not markets:
                     continue
 
-                # Apply category filter
-                if category_filter:
+                # Apply additional filter if set
+                if additional_filter:
                     event_tags = []
                     raw_tags = event.get("tags", [])
                     for t in raw_tags:
@@ -1071,7 +1150,7 @@ with tab4:
                             if tag_str:
                                 event_tags.append(tag_str)
 
-                    if not any(cat in event_tags for cat in category_filter):
+                    if not any(cat in event_tags for cat in additional_filter):
                         continue
 
                 for market in markets:
@@ -1127,6 +1206,7 @@ with tab4:
                                     st.rerun()
 
                         st.divider()
+                        markets_shown += 1
         else:
             st.warning("No active markets found")
 
