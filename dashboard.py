@@ -1482,21 +1482,22 @@ with tab2:
                 alert_class = "whale-alert-mega"
                 risk_indicator = "🟣 WHALE"
 
-            # Create bento card for each trade
-            st.markdown(f"""
-            <div class="{alert_class}" style="margin-bottom: 1rem;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-                    <div style="font-size: 1.1rem; font-weight: 700; color: #e2e8f0; font-family: 'Orbitron', sans-serif; flex: 1; margin-right: 1rem;">
-                        {row['market_question'][:100]}
-                    </div>
-                    <span class="{'badge-yes' if row['outcome'] == 'YES' else 'badge-no'}">{row['outcome']}</span>
-                </div>
-                {f'<div style="color: #ef4444; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.5rem;">{risk_indicator}</div>' if risk_indicator else ''}
-                <div style="color: #64748b; font-size: 0.8rem; font-family: JetBrains Mono, monospace;">
-                    Category: {row['market_category']}
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
+            # Create bento card for each trade - use simple approach
+            badge_class = 'badge-yes' if row['outcome'] == 'YES' else 'badge-no'
+
+            card_html = f'<div class="{alert_class}" style="margin-bottom: 1rem;">'
+            card_html += '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">'
+            card_html += f'<div style="font-size: 1.1rem; font-weight: 700; color: #e2e8f0; font-family: Orbitron, sans-serif; flex: 1; margin-right: 1rem;">{row["market_question"][:100]}</div>'
+            card_html += f'<span class="{badge_class}">{row["outcome"]}</span>'
+            card_html += '</div>'
+
+            if risk_indicator:
+                card_html += f'<div style="color: #ef4444; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.5rem;">{risk_indicator}</div>'
+
+            card_html += f'<div style="color: #64748b; font-size: 0.8rem; font-family: monospace;">Category: {row["market_category"]}</div>'
+            card_html += '</div>'
+
+            st.markdown(card_html, unsafe_allow_html=True)
 
             # Trade details in columns
             col1, col2, col3, col4 = st.columns(4)
