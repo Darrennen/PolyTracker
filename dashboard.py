@@ -577,27 +577,8 @@ with st.sidebar:
 st.markdown('<h1 class="main-title">🎯 Polymarket Sus Wallet Monitor</h1>', unsafe_allow_html=True)
 st.markdown('<p class="subtitle">Real-time detection of suspicious betting patterns on Polymarket</p>', unsafe_allow_html=True)
 
-# Check if monitor is initialized
-if st.session_state.monitor is None:
-    st.markdown("""
-    <div class="alert-info">
-        <h3>👋 Welcome!</h3>
-        <p>Configure your detection thresholds in the sidebar and click <strong>Initialize Monitor</strong> to begin.</p>
-        <br>
-        <strong>What this monitors:</strong>
-        <ul>
-            <li>🕐 <strong>New wallets</strong> - Accounts created recently (configurable, default 14 days)</li>
-            <li>💰 <strong>Large bets</strong> - High-value positions (configurable, default $10k+)</li>
-            <li>📉 <strong>Low odds bets</strong> - Betting on unlikely outcomes (e.g., 5¢ on the dollar)</li>
-        </ul>
-    </div>
-    """, unsafe_allow_html=True)
-    st.stop()
-
-monitor = st.session_state.monitor
-
 # ============================================================================
-# Category Selection (Polymarket-style)
+# Category Selection (Polymarket-style) - Always visible
 # ============================================================================
 
 # All available Polymarket categories
@@ -637,6 +618,25 @@ else:
     st.caption("⚠️ No categories selected - all markets will be monitored")
 
 st.divider()
+
+# Check if monitor is initialized
+if st.session_state.monitor is None:
+    st.markdown("""
+    <div class="alert-info">
+        <h3>👋 Welcome!</h3>
+        <p>You've selected your categories! Now configure your detection thresholds in the sidebar and click <strong>Initialize Monitor</strong> to begin.</p>
+        <br>
+        <strong>What this monitors:</strong>
+        <ul>
+            <li>🕐 <strong>New wallets</strong> - Accounts created recently (configurable, default 14 days)</li>
+            <li>💰 <strong>Large bets</strong> - High-value positions (configurable, default $10k+)</li>
+            <li>📉 <strong>Low odds bets</strong> - Betting on unlikely outcomes (e.g., 5¢ on the dollar)</li>
+        </ul>
+    </div>
+    """, unsafe_allow_html=True)
+    st.stop()
+
+monitor = st.session_state.monitor
 
 # Get data
 suspicious_trades = monitor.get_suspicious_trades(limit=1000)
