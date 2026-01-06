@@ -337,60 +337,136 @@ class PolymarketAPI:
 
 class PolygonBlockscout:
     """Helper class to get wallet creation date using Blockscout API"""
-    
-    def __init__(self):
+
+    def __init__(self, polymarket_api=None):
         self.base_url = "https://polygon.blockscout.com/api/v2"
-    
+        self.polymarket_api = polymarket_api
+        self.age_cache = {}  # Cache wallet ages to reduce API calls
+
     def get_wallet_first_tx_timestamp(self, wallet_address: str) -> Optional[datetime]:
         """Get the timestamp of the first transaction for a wallet"""
         try:
+            logger.debug(f"Fetching first tx for {wallet_address[:16]}...")
+
             # Get first outgoing transaction
             url = f"{self.base_url}/addresses/{wallet_address}/transactions"
             params = {"filter": "from", "sort": "asc", "limit": 1}
-            
+
             response = requests.get(url, params=params, timeout=15)
-            
+
             if response.status_code == 200:
                 data = response.json()
                 items = data.get("items", [])
-                
+
                 if items:
                     first_tx = items[0]
                     timestamp_str = first_tx.get("timestamp")
                     if timestamp_str:
+                        logger.debug(f"Found first tx timestamp: {timestamp_str}")
                         return datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
-            
+            elif response.status_code == 429:
+                logger.warning(f"Blockscout rate limit hit for {wallet_address[:16]}")
+            else:
+                logger.warning(f"Blockscout API returned {response.status_code} for {wallet_address[:16]}")
+
             # Fallback: check internal transactions
             url = f"{self.base_url}/addresses/{wallet_address}/internal-transactions"
             params = {"sort": "asc", "limit": 1}
-            
+
             response = requests.get(url, params=params, timeout=15)
-            
+
             if response.status_code == 200:
                 data = response.json()
                 items = data.get("items", [])
-                
+
                 if items:
                     first_tx = items[0]
                     timestamp_str = first_tx.get("timestamp")
                     if timestamp_str:
+                        logger.debug(f"Found first internal tx timestamp: {timestamp_str}")
                         return datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
-            
+
+            logger.debug(f"No transactions found for {wallet_address[:16]}")
             return None
-            
+
         except Exception as e:
-            logger.error(f"Error getting wallet first tx: {e}")
+            logger.error(f"Error getting wallet first tx for {wallet_address[:16]}: {e}")
             return None
-    
+
+    def get_wallet_age_from_polymarket(self, wallet_address: str) -> Optional[int]:
+        """
+        Fallback method: Use Polymarket API to get wallet's first activity
+        This checks when the wallet first traded on Polymarket
+        """
+        if not self.polymarket_api:
+            return None
+
+        try:
+            logger.debug(f"Trying Polymarket API for wallet age of {wallet_address[:16]}...")
+
+            # Get user's activity sorted by timestamp ascending
+            activity = self.polymarket_api.get_user_activity(
+                user=wallet_address,
+                sort_by="TIMESTAMP",
+                sort_direction="ASC",
+                limit=1
+            )
+
+            if activity and len(activity) > 0:
+                first_activity = activity[0]
+                timestamp = first_activity.get("timestamp")
+
+                if timestamp:
+                    # Timestamp is Unix epoch
+                    first_activity_time = datetime.fromtimestamp(timestamp)
+                    now = datetime.now()
+                    age = now - first_activity_time
+                    logger.info(f"Wallet {wallet_address[:16]} first Polymarket activity: {age.days} days ago")
+                    return age.days
+
+            logger.debug(f"No Polymarket activity found for {wallet_address[:16]}")
+            return None
+
+        except Exception as e:
+            logger.error(f"Error getting Polymarket activity age for {wallet_address[:16]}: {e}")
+            return None
+
     def get_wallet_age_days(self, wallet_address: str) -> Optional[int]:
-        """Get the age of a wallet in days"""
+        """
+        Get the age of a wallet in days
+
+        Tries multiple methods:
+        1. Check cache
+        2. Blockscout API (Polygon blockchain)
+        3. Polymarket API (first trade activity)
+        """
+        wallet_address = wallet_address.lower()
+
+        # Check cache first
+        if wallet_address in self.age_cache:
+            logger.debug(f"Using cached age for {wallet_address[:16]}")
+            return self.age_cache[wallet_address]
+
+        # Try Blockscout first
         first_tx_time = self.get_wallet_first_tx_timestamp(wallet_address)
-        
+
         if first_tx_time:
             now = datetime.now(first_tx_time.tzinfo)
             age = now - first_tx_time
-            return age.days
-        
+            age_days = age.days
+            logger.info(f"Wallet {wallet_address[:16]} age from Blockscout: {age_days} days")
+            self.age_cache[wallet_address] = age_days
+            return age_days
+
+        # Fallback to Polymarket API
+        logger.info(f"Blockscout failed for {wallet_address[:16]}, trying Polymarket API...")
+        age_days = self.get_wallet_age_from_polymarket(wallet_address)
+
+        if age_days is not None:
+            self.age_cache[wallet_address] = age_days
+            return age_days
+
+        logger.warning(f"Could not determine age for wallet {wallet_address[:16]}")
         return None
 
 
@@ -547,16 +623,17 @@ class PolymarketMonitor:
     ):
         self.db_path = db_path
         self.config = config or DetectionConfig()
-        
+
         # Initialize API client
         self.api = PolymarketAPI(api_key=api_key)
-        self.blockchain = PolygonBlockscout()
+        # Pass API to blockchain helper for fallback wallet age detection
+        self.blockchain = PolygonBlockscout(polymarket_api=self.api)
         self.alert_manager = AlertManager(
             telegram_token=telegram_token,
             telegram_chat_id=telegram_chat_id,
             slack_webhook_url=slack_webhook_url
         )
-        
+
         self.init_database()
     
     def init_database(self):

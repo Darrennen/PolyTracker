@@ -843,8 +843,11 @@ with tab2:
                 with col3:
                     st.markdown("**Wallet**")
                     st.code(f"{row['wallet_address'][:10]}...{row['wallet_address'][-6:]}")
-                    age_str = f"{row['wallet_age_days']}d" if row['wallet_age_days'] else "?"
-                    st.caption(f"Age: {age_str}")
+                    if row['wallet_age_days'] is not None:
+                        age_str = f"{row['wallet_age_days']}d"
+                        st.caption(f"Age: {age_str}")
+                    else:
+                        st.caption("Age: Unknown", help="Could not determine wallet age. This may happen if the wallet has minimal on-chain activity or API rate limits were hit.")
                 
                 with col4:
                     st.markdown("**Actions**")
@@ -991,11 +994,13 @@ with tab4:
                     
                     if success:
                         st.success(f"✓ Added wallet: {wallet_address[:16]}...")
-                        
+
                         # Try to get wallet info
                         age = monitor.blockchain.get_wallet_age_days(wallet_address)
                         if age is not None:
                             st.info(f"Wallet age: {age} days")
+                        else:
+                            st.warning("Could not determine wallet age (may have minimal on-chain activity)")
                     else:
                         st.error("Failed to add wallet")
                 else:
