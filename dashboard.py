@@ -1284,16 +1284,16 @@ st.divider()
 
 
 # ============================================================================
-# Tabs
+# Tabs - Enhanced Navigation
 # ============================================================================
 
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-    "📊 Dashboard",
-    "🔍 Recent Activity",
-    "👛 Wallet Tracker",
-    "🎯 Market Tracker",
-    "➕ Add Wallet",
-    "📈 Statistics"
+    "⚡ DASHBOARD",
+    "🔴 LIVE ACTIVITY",
+    "📍 WALLET TRACKER",
+    "🎯 MARKET TRACKER",
+    "➕ ADD WALLET",
+    "📊 STATISTICS"
 ])
 
 
@@ -1388,18 +1388,19 @@ with tab1:
 
 
 # ============================================================================
-# TAB 2: Recent Activity
+# TAB 2: LIVE ACTIVITY - Redesigned
 # ============================================================================
 
 with tab2:
-    st.markdown("#### 🔍 Recent Suspicious Trades")
-    
+    st.markdown("### 🔴 LIVE SUSPICIOUS ACTIVITY")
+
     if df.empty:
-        st.info("No suspicious activity detected yet.")
+        st.info("No suspicious activity detected yet. Run a scan to start monitoring.")
     else:
-        # Filters
+        # Enhanced Filters with Cyber Theme
+        st.markdown("#### FILTERS")
         col1, col2, col3, col4 = st.columns(4)
-        
+
         with col1:
             filter_min_bet = st.number_input(
                 "Min Bet Size ($)",
@@ -1407,7 +1408,7 @@ with tab2:
                 step=1000,
                 key="filter_min_bet"
             )
-        
+
         with col2:
             filter_max_price = st.slider(
                 "Max Entry Price (¢)",
@@ -1416,14 +1417,14 @@ with tab2:
                 value=100,
                 key="filter_max_price"
             )
-        
+
         with col3:
             filter_position = st.selectbox(
                 "Position",
                 ["All", "YES", "NO"],
                 key="filter_position"
             )
-        
+
         with col4:
             filter_age = st.slider(
                 "Max Wallet Age (days)",
@@ -1432,7 +1433,7 @@ with tab2:
                 value=90,
                 key="filter_age"
             )
-        
+
         # Apply filters
         filtered_df = df.copy()
         filtered_df = filtered_df[filtered_df['bet_size'] >= filter_min_bet]
@@ -1462,77 +1463,83 @@ with tab2:
                 except (ValueError, IndexError):
                     pass  # Market filter not found, show all
 
-        st.caption(f"Showing {len(filtered_df)} trades")
+        st.markdown(f"**Showing {len(filtered_df)} trades**")
         st.divider()
-        
-        # Display trades
-        for idx, row in filtered_df.head(50).iterrows():
-            # Determine risk level
-            risk_class = "alert-info"
-            risk_emoji = "⚠️"
-            
-            if row['wallet_age_days'] is not None and row['wallet_age_days'] < 7:
-                risk_class = "alert-critical"
-                risk_emoji = "🚨"
-            elif row['odds_cents'] < 10:
-                risk_class = "alert-critical"
-                risk_emoji = "🚨"
-            elif row['bet_size'] >= 50000:
-                risk_class = "alert-warning"
-                risk_emoji = "⚠️"
-            
-            with st.container():
-                col1, col2 = st.columns([4, 1])
-                
-                with col1:
-                    st.markdown(f"**{risk_emoji} {row['market_question'][:80]}...**")
-                    st.caption(f"Category: {row['market_category']}")
-                
-                with col2:
-                    if row['outcome'] == 'YES':
-                        st.markdown('<span class="badge-yes">YES</span>', unsafe_allow_html=True)
-                    else:
-                        st.markdown('<span class="badge-no">NO</span>', unsafe_allow_html=True)
-                
-                col1, col2, col3, col4 = st.columns(4)
-                
-                with col1:
-                    st.markdown("**Bet Size**")
-                    st.markdown(f"${row['bet_size']:,.0f}")
-                    potential = row['bet_size'] / row['odds'] if row['odds'] > 0 else 0
-                    st.caption(f"Potential: ${potential:,.0f}")
-                
-                with col2:
-                    st.markdown("**Entry Price**")
-                    st.markdown(f"{row['odds_cents']:.1f}¢")
-                    st.caption("on the dollar")
-                
-                with col3:
-                    st.markdown("**Wallet**")
-                    # Display full address in copyable format
-                    st.code(row['wallet_address'], language=None)
-                    if row['wallet_age_days'] is not None:
-                        age_str = f"{row['wallet_age_days']}d"
-                        st.caption(f"Age: {age_str}")
-                    else:
-                        st.caption("Age: Unknown", help="Could not determine wallet age. This may happen if the wallet has minimal on-chain activity or API rate limits were hit.")
 
-                with col4:
-                    st.markdown("**Actions**")
-                    col_a, col_b = st.columns(2)
-                    with col_a:
-                        st.link_button(
-                            "📊",
-                            f"https://polymarket.com/profile/{row['wallet_address']}",
-                            help="View Polymarket profile",
-                            use_container_width=True
-                        )
-                    with col_b:
-                        if st.button("🔍", key=f"track_{row['id']}", help="Track this wallet"):
-                            monitor.add_tracked_wallet(row['wallet_address'])
-                            st.success("Added to tracking!")
-                
-                st.divider()
+        # Display trades in Bento Card Style
+        for idx, row in filtered_df.head(50).iterrows():
+            # Determine alert class based on risk
+            alert_class = "bento-card"
+            risk_indicator = ""
+
+            if row['wallet_age_days'] is not None and row['wallet_age_days'] < 7:
+                alert_class = "whale-alert"
+                risk_indicator = "🔴 HIGH RISK"
+            elif row['odds_cents'] < 10:
+                alert_class = "whale-alert"
+                risk_indicator = "🔴 LOW ODDS"
+            elif row['bet_size'] >= 50000:
+                alert_class = "whale-alert-mega"
+                risk_indicator = "🟣 WHALE"
+
+            # Create bento card for each trade
+            st.markdown(f'''
+            <div class="{alert_class}">
+                <div style="margin-bottom: 1rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                        <div style="font-size: 1.1rem; font-weight: 700; color: #e2e8f0; font-family: 'Orbitron', sans-serif; flex: 1;">
+                            {row['market_question'][:100]}
+                        </div>
+                        <span class="{'badge-yes' if row['outcome'] == 'YES' else 'badge-no'}">{row['outcome']}</span>
+                    </div>
+                    {f'<div style="color: #ef4444; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.5rem;">{risk_indicator}</div>' if risk_indicator else ''}
+                    <div style="color: #64748b; font-size: 0.8rem; font-family: 'JetBrains Mono', monospace;">
+                        Category: {row['market_category']}
+                    </div>
+                </div>
+            </div>
+            ''', unsafe_allow_html=True)
+
+            # Trade details in columns
+            col1, col2, col3, col4 = st.columns(4)
+
+            with col1:
+                st.markdown("**BET SIZE**")
+                st.markdown(f"<div style='font-size: 1.3rem; font-weight: 700; color: #10b981; font-family: \"Orbitron\", monospace;'>${row['bet_size']:,.0f}</div>", unsafe_allow_html=True)
+                potential = row['bet_size'] / row['odds'] if row['odds'] > 0 else 0
+                st.caption(f"Potential: ${potential:,.0f}")
+
+            with col2:
+                st.markdown("**ENTRY PRICE**")
+                price_color = "#ef4444" if row['odds_cents'] < 10 else "#10b981"
+                st.markdown(f"<div style='font-size: 1.3rem; font-weight: 700; color: {price_color}; font-family: \"Orbitron\", monospace;'>{row['odds_cents']:.1f}¢</div>", unsafe_allow_html=True)
+                st.caption("on the dollar")
+
+            with col3:
+                st.markdown("**WALLET**")
+                st.code(row['wallet_address'], language=None)
+                if row['wallet_age_days'] is not None:
+                    age_color = "#ef4444" if row['wallet_age_days'] < 7 else "#64748b"
+                    st.markdown(f"<div style='color: {age_color}; font-weight: 600;'>Age: {row['wallet_age_days']}d</div>", unsafe_allow_html=True)
+                else:
+                    st.caption("Age: Unknown", help="Could not determine wallet age")
+
+            with col4:
+                st.markdown("**ACTIONS**")
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    st.link_button(
+                        "📊",
+                        f"https://polymarket.com/profile/{row['wallet_address']}",
+                        help="View Polymarket profile",
+                        use_container_width=True
+                    )
+                with col_b:
+                    if st.button("🔍", key=f"track_{row['id']}", help="Track this wallet", use_container_width=True):
+                        monitor.add_tracked_wallet(row['wallet_address'])
+                        st.success("Added to tracking!")
+
+            st.divider()
 
 
 # ============================================================================
