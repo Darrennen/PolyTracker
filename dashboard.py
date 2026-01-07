@@ -1468,19 +1468,23 @@ with tab2:
 
         # Display trades in Bento Card Style
         for idx, row in filtered_df.head(50).iterrows():
-            # Determine alert class based on risk
-            alert_class = "bento-card"
-            risk_indicator = ""
+            # Get risk score and level
+            risk_score = row.get('risk_score', 0)
+            risk_level = row.get('risk_level', 'LOW')
 
-            if row['wallet_age_days'] is not None and row['wallet_age_days'] < 7:
-                alert_class = "whale-alert"
-                risk_indicator = "🔴 HIGH RISK"
-            elif row['odds_cents'] < 10:
-                alert_class = "whale-alert"
-                risk_indicator = "🔴 LOW ODDS"
-            elif row['bet_size'] >= 50000:
+            # Determine alert class based on risk level
+            if risk_level == "CRITICAL":
                 alert_class = "whale-alert-mega"
-                risk_indicator = "🟣 WHALE"
+                risk_indicator = f"🔴 CRITICAL RISK (Score: {risk_score})"
+            elif risk_level == "HIGH":
+                alert_class = "whale-alert"
+                risk_indicator = f"🟠 HIGH RISK (Score: {risk_score})"
+            elif risk_level == "MEDIUM":
+                alert_class = "bento-card"
+                risk_indicator = f"🟡 MEDIUM RISK (Score: {risk_score})"
+            else:
+                alert_class = "bento-card"
+                risk_indicator = f"🟢 LOW RISK (Score: {risk_score})"
 
             # Create bento card for each trade - use simple approach
             badge_class = 'badge-yes' if row['outcome'] == 'YES' else 'badge-no'
