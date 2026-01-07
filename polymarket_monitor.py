@@ -662,7 +662,9 @@ class PolymarketMonitor:
                 wallet_age_days INTEGER,
                 detected_at TEXT,
                 alerted INTEGER DEFAULT 0,
-                alert_channels TEXT
+                alert_channels TEXT,
+                risk_score INTEGER DEFAULT 0,
+                risk_level TEXT DEFAULT 'LOW'
             )
         """)
         
@@ -1067,6 +1069,97 @@ class PolymarketMonitor:
         except:
             return False
 
+    def calculate_risk_score(self, trade_data: Dict, wallet_age: Optional[int]) -> Tuple[int, str]:
+        """
+        Calculate risk score for a trade based on multiple factors
+
+        Returns: (risk_score, risk_level)
+        - risk_score: 0-100 integer
+        - risk_level: CRITICAL, HIGH, MEDIUM, LOW
+        """
+        score = 0
+
+        # Factor 1: Wallet Age (max 40 points)
+        if wallet_age is not None:
+            if wallet_age <= 1:
+                score += 40  # Brand new wallet
+            elif wallet_age <= 3:
+                score += 35
+            elif wallet_age <= 7:
+                score += 30
+            elif wallet_age <= 14:
+                score += 20
+            elif wallet_age <= 30:
+                score += 10
+
+        # Factor 2: Bet Size (max 30 points)
+        bet_size = trade_data.get('bet_size', 0)
+        if bet_size >= 100000:
+            score += 30  # $100k+
+        elif bet_size >= 50000:
+            score += 25  # $50k+
+        elif bet_size >= 25000:
+            score += 20  # $25k+
+        elif bet_size >= 10000:
+            score += 15  # $10k+
+        elif bet_size >= 5000:
+            score += 10  # $5k+
+
+        # Factor 3: Entry Price/Odds (max 30 points)
+        odds = trade_data.get('odds', 1.0)
+        odds_cents = odds * 100
+        if odds_cents <= 2:
+            score += 30  # 2¢ or less - extremely unlikely
+        elif odds_cents <= 5:
+            score += 25  # 2-5¢
+        elif odds_cents <= 10:
+            score += 20  # 5-10¢
+        elif odds_cents <= 15:
+            score += 15  # 10-15¢
+        elif odds_cents <= 20:
+            score += 10  # 15-20¢
+
+        # Factor 4: Check for rapid trading (velocity)
+        # Get recent trades from this wallet
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+
+            # Check trades in last hour
+            current_time = datetime.now()
+            one_hour_ago = (current_time - timedelta(hours=1)).isoformat()
+
+            cursor.execute("""
+                SELECT COUNT(*) FROM suspicious_trades
+                WHERE wallet_address = ? AND detected_at > ?
+            """, (trade_data['wallet_address'], one_hour_ago))
+
+            recent_count = cursor.fetchone()[0]
+            conn.close()
+
+            # Velocity scoring
+            if recent_count >= 10:
+                score += 20  # 10+ trades in an hour
+            elif recent_count >= 5:
+                score += 15  # 5-9 trades
+            elif recent_count >= 3:
+                score += 10  # 3-4 trades
+
+        except Exception as e:
+            logger.warning(f"Could not check velocity: {e}")
+
+        # Determine risk level
+        if score >= 80:
+            risk_level = "CRITICAL"
+        elif score >= 60:
+            risk_level = "HIGH"
+        elif score >= 40:
+            risk_level = "MEDIUM"
+        else:
+            risk_level = "LOW"
+
+        return score, risk_level
+
     def analyze_trade(self, trade: Dict) -> Optional[Dict]:
         """
         Analyze a trade for suspicious patterns
@@ -1132,6 +1225,18 @@ class PolymarketMonitor:
                 logger.warning(f"Unknown outcome format: {outcome_raw} for trade {trade.get('transactionHash', 'unknown')[:16]}")
                 outcome = "YES"  # Default to YES if unknown
 
+            # Build trade data for risk scoring
+            trade_data_for_scoring = {
+                "wallet_address": wallet,
+                "bet_size": usd_value,
+                "odds": price,
+                "outcome": outcome,
+                "side": side
+            }
+
+            # Calculate risk score
+            risk_score, risk_level = self.calculate_risk_score(trade_data_for_scoring, wallet_age)
+
             # Build suspicious trade data
             return {
                 "trade_id": trade.get('transactionHash', f"{wallet}_{trade.get('timestamp', '')}"),
@@ -1147,6 +1252,8 @@ class PolymarketMonitor:
                 "timestamp": trade.get('timestamp'),
                 "transaction_hash": trade.get('transactionHash'),
                 "wallet_age_days": wallet_age,
+                "risk_score": risk_score,
+                "risk_level": risk_level,
                 # Include original trade data for reference
                 "proxyWallet": wallet,
                 "title": trade.get('title'),
@@ -1166,11 +1273,11 @@ class PolymarketMonitor:
             cursor = conn.cursor()
             
             cursor.execute("""
-                INSERT OR IGNORE INTO suspicious_trades 
+                INSERT OR IGNORE INTO suspicious_trades
                 (trade_id, wallet_address, market_id, market_question, market_category,
                  bet_size, outcome, side, odds, shares, timestamp, transaction_hash,
-                 wallet_age_days, detected_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 wallet_age_days, detected_at, risk_score, risk_level)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 trade_data["trade_id"],
                 trade_data["wallet_address"],
@@ -1185,7 +1292,9 @@ class PolymarketMonitor:
                 trade_data["timestamp"],
                 trade_data.get("transaction_hash"),
                 trade_data["wallet_age_days"],
-                datetime.now().isoformat()
+                datetime.now().isoformat(),
+                trade_data.get("risk_score", 0),
+                trade_data.get("risk_level", "LOW")
             ))
             
             # Update wallet analysis
