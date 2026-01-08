@@ -24,344 +24,205 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for Cyber-Dark Enhanced UI
+# Wall Street Journal Inspired Theme
 st.markdown("""
 <style>
-    /* Import Google Fonts */
-    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Orbitron:wght@400;600;700;900&display=swap');
+    /* Import Classic Fonts */
+    @import url('https://fonts.googleapis.com/css2?family=Crimson+Text:wght@400;600;700&family=IBM+Plex+Serif:wght@400;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
 
     /* ============================================
-       CYBER-DARK THEME - Global Styles
+       WSJ THEME - Global Styles
        ============================================ */
     .stApp {
-        background: #0a0e27;
-        background-image:
-            radial-gradient(at 0% 0%, rgba(16, 185, 129, 0.05) 0px, transparent 50%),
-            radial-gradient(at 100% 0%, rgba(239, 68, 68, 0.05) 0px, transparent 50%),
-            radial-gradient(at 100% 100%, rgba(59, 130, 246, 0.05) 0px, transparent 50%);
+        background: #F7F5F2;
+        color: #1a1a1a;
     }
-    
+
     /* ============================================
-       TITLE & BRANDING
+       TYPOGRAPHY - Classic Newspaper Style
        ============================================ */
     .main-title {
-        font-family: 'Orbitron', sans-serif;
-        font-size: 2.5rem;
-        font-weight: 900;
-        background: linear-gradient(135deg, #10b981 0%, #3b82f6 50%, #ef4444 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
+        font-family: 'Crimson Text', Georgia, serif;
+        font-size: 2.8rem;
+        font-weight: 700;
+        color: #000000;
         text-align: center;
-        padding: 1rem 0;
-        margin-bottom: 0.5rem;
-        text-shadow: 0 0 40px rgba(16, 185, 129, 0.3);
-        letter-spacing: 2px;
+        padding: 1.5rem 0 0.5rem 0;
+        margin-bottom: 0;
+        border-bottom: 3px solid #000000;
+        letter-spacing: -0.5px;
     }
 
     .subtitle {
-        font-family: 'JetBrains Mono', monospace;
-        color: #64748b;
+        font-family: 'IBM Plex Sans', sans-serif;
+        color: #666666;
         text-align: center;
-        font-size: 0.85rem;
-        margin-bottom: 1rem;
+        font-size: 0.9rem;
+        margin-top: 0.5rem;
+        margin-bottom: 2rem;
         text-transform: uppercase;
-        letter-spacing: 3px;
+        letter-spacing: 2px;
+        font-weight: 500;
     }
 
     /* ============================================
-       METRIC CARDS - Cyber Style
+       METRIC CARDS - Clean Financial Style
        ============================================ */
     .metric-card {
-        background: linear-gradient(135deg, rgba(15, 23, 42, 0.8), rgba(30, 41, 59, 0.6));
-        border: 1px solid rgba(16, 185, 129, 0.2);
-        border-radius: 16px;
+        background: #FFFFFF;
+        border: 1px solid #D4D4D4;
+        border-top: 3px solid #000000;
         padding: 1.5rem;
-        backdrop-filter: blur(20px);
-        transition: all 0.3s ease;
-        position: relative;
-        overflow: hidden;
-    }
-
-    .metric-card::after {
-        content: '';
-        position: absolute;
-        top: -50%;
-        right: -50%;
-        width: 200%;
-        height: 200%;
-        background: radial-gradient(circle, rgba(16, 185, 129, 0.1) 0%, transparent 70%);
-        opacity: 0;
-        transition: opacity 0.3s;
-    }
-
-    .metric-card:hover::after {
-        opacity: 1;
+        transition: all 0.2s ease;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.08);
     }
 
     .metric-card:hover {
-        border-color: #10b981;
-        box-shadow: 0 0 30px rgba(16, 185, 129, 0.3);
-        transform: translateY(-4px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+        border-top-color: #0274B6;
     }
 
     .metric-value {
-        font-family: 'Orbitron', monospace;
-        font-size: 2.2rem;
-        font-weight: 700;
-        color: #10b981;
-        text-shadow: 0 0 20px rgba(16, 185, 129, 0.5);
+        font-family: 'IBM Plex Sans', sans-serif;
+        font-size: 2.5rem;
+        font-weight: 600;
+        color: #000000;
+        line-height: 1;
+        margin-bottom: 0.5rem;
     }
 
-    .metric-value-red {
-        color: #ef4444;
-        text-shadow: 0 0 20px rgba(239, 68, 68, 0.5);
+    .metric-value-positive {
+        color: #0274B6;
+    }
+
+    .metric-value-negative {
+        color: #CC0000;
     }
 
     .metric-label {
-        font-family: 'JetBrains Mono', sans-serif;
+        font-family: 'IBM Plex Sans', sans-serif;
         font-size: 0.75rem;
-        color: #64748b;
-        text-transform: uppercase;
-        letter-spacing: 0.1em;
-    }
-    
-    /* Alert cards */
-    .alert-critical {
-        background: linear-gradient(135deg, rgba(239, 68, 68, 0.2), rgba(185, 28, 28, 0.1));
-        border-left: 4px solid #ef4444;
-        border-radius: 8px;
-        padding: 1rem;
-        margin: 0.5rem 0;
-    }
-    
-    .alert-warning {
-        background: linear-gradient(135deg, rgba(245, 158, 11, 0.2), rgba(180, 83, 9, 0.1));
-        border-left: 4px solid #f59e0b;
-        border-radius: 8px;
-        padding: 1rem;
-        margin: 0.5rem 0;
-    }
-    
-    .alert-info {
-        background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(29, 78, 216, 0.1));
-        border-left: 4px solid #3b82f6;
-        border-radius: 8px;
-        padding: 1rem;
-        margin: 0.5rem 0;
-    }
-    
-    /* Wallet address styling */
-    .wallet-address {
-        font-family: 'JetBrains Mono', monospace;
-        background: rgba(15, 23, 42, 0.8);
-        color: #00d4ff;
-        padding: 0.5rem 1rem;
-        border-radius: 6px;
-        font-size: 0.85rem;
-        border: 1px solid rgba(0, 212, 255, 0.3);
-    }
-    
-    /* ============================================
-       POSITION BADGES - Neon YES/NO
-       ============================================ */
-    .badge-yes {
-        background: linear-gradient(135deg, #10b981, #059669);
-        color: white;
-        padding: 0.3rem 0.9rem;
-        border-radius: 20px;
-        font-family: 'Orbitron', monospace;
-        font-weight: 700;
-        font-size: 0.75rem;
-        box-shadow: 0 0 15px rgba(16, 185, 129, 0.4);
+        color: #666666;
         text-transform: uppercase;
         letter-spacing: 1px;
+        font-weight: 500;
+    }
+
+    /* ============================================
+       SECTION HEADERS - Newspaper Style
+       ============================================ */
+    h3 {
+        font-family: 'Crimson Text', Georgia, serif;
+        font-size: 1.8rem;
+        font-weight: 700;
+        color: #000000;
+        border-bottom: 2px solid #000000;
+        padding-bottom: 0.5rem;
+        margin-top: 2rem;
+        margin-bottom: 1rem;
+    }
+
+    h4 {
+        font-family: 'IBM Plex Sans', sans-serif;
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: #666666;
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        margin-top: 1.5rem;
+        margin-bottom: 0.75rem;
+    }
+
+    /* ============================================
+       ALERT CARDS - WSJ Article Style
+       ============================================ */
+    .wsj-alert {
+        background: #FFFFFF;
+        border-left: 4px solid #000000;
+        padding: 1.5rem;
+        margin: 1rem 0;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+
+    .wsj-alert-critical {
+        border-left-color: #CC0000;
+        background: #FFF5F5;
+    }
+
+    .wsj-alert-high {
+        border-left-color: #E67E22;
+        background: #FFF9F5;
+    }
+
+    .wsj-alert-medium {
+        border-left-color: #0274B6;
+        background: #F5F9FF;
+    }
+
+    /* ============================================
+       BADGES - Minimal WSJ Style
+       ============================================ */
+    .badge-yes {
+        background: #0274B6;
+        color: white;
+        padding: 0.25rem 0.75rem;
+        font-family: 'IBM Plex Sans', sans-serif;
+        font-weight: 600;
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        border-radius: 2px;
     }
 
     .badge-no {
-        background: linear-gradient(135deg, #ef4444, #dc2626);
+        background: #CC0000;
         color: white;
-        padding: 0.3rem 0.9rem;
-        border-radius: 20px;
-        font-family: 'Orbitron', monospace;
-        font-weight: 700;
-        font-size: 0.75rem;
-        box-shadow: 0 0 15px rgba(239, 68, 68, 0.4);
+        padding: 0.25rem 0.75rem;
+        font-family: 'IBM Plex Sans', sans-serif;
+        font-weight: 600;
+        font-size: 0.7rem;
         text-transform: uppercase;
-        letter-spacing: 1px;
+        letter-spacing: 0.5px;
+        border-radius: 2px;
     }
 
     /* ============================================
-       SIDEBAR - Dark Cyber Theme
-       ============================================ */
-    section[data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #0f172a 0%, #0a0e27 100%);
-        border-right: 2px solid rgba(16, 185, 129, 0.2);
-        box-shadow: 4px 0 20px rgba(0, 0, 0, 0.5);
-    }
-    
-    section[data-testid="stSidebar"] .stMarkdown h1,
-    section[data-testid="stSidebar"] .stMarkdown h2,
-    section[data-testid="stSidebar"] .stMarkdown h3 {
-        color: #e2e8f0;
-    }
-    
-    /* Button styling */
-    .stButton > button {
-        background: linear-gradient(135deg, #7c3aed, #6366f1);
-        color: white;
-        border: none;
-        border-radius: 8px;
-        font-family: 'Space Grotesk', sans-serif;
-        font-weight: 600;
-        padding: 0.5rem 1.5rem;
-        transition: all 0.3s ease;
-    }
-    
-    .stButton > button:hover {
-        background: linear-gradient(135deg, #8b5cf6, #818cf8);
-        box-shadow: 0 4px 15px rgba(124, 58, 237, 0.4);
-        transform: translateY(-2px);
-    }
-    
-    /* Primary button */
-    .stButton > button[kind="primary"] {
-        background: linear-gradient(135deg, #00d4ff, #0891b2);
-    }
-    
-    .stButton > button[kind="primary"]:hover {
-        background: linear-gradient(135deg, #22d3ee, #06b6d4);
-    }
-    
-    /* Tab styling */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
-        background: rgba(30, 41, 59, 0.5);
-        padding: 0.5rem;
-        border-radius: 12px;
-    }
-    
-    .stTabs [data-baseweb="tab"] {
-        background: transparent;
-        color: #94a3b8;
-        border-radius: 8px;
-        font-family: 'Space Grotesk', sans-serif;
-    }
-    
-    .stTabs [aria-selected="true"] {
-        background: linear-gradient(135deg, #7c3aed, #6366f1);
-        color: white;
-    }
-    
-    /* Input styling */
-    .stTextInput > div > div > input,
-    .stNumberInput > div > div > input {
-        background: rgba(30, 41, 59, 0.8);
-        border: 1px solid rgba(100, 116, 139, 0.3);
-        color: #f1f5f9;
-        font-family: 'JetBrains Mono', monospace;
-        border-radius: 8px;
-    }
-    
-    .stTextInput > div > div > input:focus,
-    .stNumberInput > div > div > input:focus {
-        border-color: #7c3aed;
-        box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.2);
-    }
-    
-    /* Expander styling */
-    .streamlit-expanderHeader {
-        background: rgba(30, 41, 59, 0.6);
-        border-radius: 8px;
-        font-family: 'Space Grotesk', sans-serif;
-    }
-    
-    /* Data table */
-    .stDataFrame {
-        background: rgba(30, 41, 59, 0.5);
-        border-radius: 12px;
-        overflow: hidden;
-    }
-    
-    /* Divider */
-    hr {
-        border-color: rgba(100, 116, 139, 0.2);
-    }
-
-    /* Fix Streamlit info/alert boxes text color for dark theme */
-    .stAlert > div {
-        color: #f1f5f9 !important;
-    }
-
-    .stAlert p, .stAlert li, .stAlert span {
-        color: #f1f5f9 !important;
-    }
-
-    /* Make all text in main content area readable */
-    .stMarkdown, .stMarkdown p, .stMarkdown li, .stMarkdown span {
-        color: #e2e8f0;
-    }
-
-    /* Risk level indicators */
-    .risk-critical {
-        color: #ef4444;
-        font-weight: 700;
-    }
-    
-    .risk-high {
-        color: #f59e0b;
-        font-weight: 600;
-    }
-    
-    .risk-medium {
-        color: #eab308;
-    }
-    
-    /* ============================================
-       RESPONSIVE DESIGN - Mobile & Desktop
-       ============================================ */
-    @media (max-width: 768px) {
-        .main-title { font-size: 1.5rem !important; }
-        .metric-value { font-size: 1.5rem !important; }
-        .bento-grid { grid-template-columns: 1fr !important; }
-        .ticker-tape { font-size: 0.75rem !important; }
-    }
-
-    /* ============================================
-       TICKER TAPE - Live Market Feed
+       TICKER TAPE - Financial News Style
        ============================================ */
     .ticker-tape {
-        background: linear-gradient(90deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
-        border-bottom: 1px solid #10b981;
-        padding: 0.5rem 0;
+        background: #000000;
+        color: #FFFFFF;
+        border-top: 3px solid #0274B6;
+        border-bottom: 1px solid #333333;
+        padding: 0.75rem 0;
         overflow: hidden;
-        position: relative;
-        box-shadow: 0 4px 10px rgba(16, 185, 129, 0.1);
     }
 
     .ticker-content {
         display: flex;
-        animation: ticker-scroll 30s linear infinite;
-        font-family: 'JetBrains Mono', monospace;
+        animation: ticker-scroll 40s linear infinite;
+        font-family: 'IBM Plex Sans', sans-serif;
         font-size: 0.85rem;
+        font-weight: 500;
     }
 
     .ticker-item {
         padding: 0 2rem;
         white-space: nowrap;
-        color: #94a3b8;
+        color: #CCCCCC;
     }
 
     .ticker-item .market-name {
-        color: #e2e8f0;
+        color: #FFFFFF;
         font-weight: 600;
     }
 
     .ticker-item .price-up {
-        color: #10b981;
+        color: #0274B6;
     }
 
     .ticker-item .price-down {
-        color: #ef4444;
+        color: #CC0000;
     }
 
     @keyframes ticker-scroll {
@@ -370,162 +231,118 @@ st.markdown("""
     }
 
     /* ============================================
-       BENTO GRID - Modular Layout
+       SIDEBAR - Professional Style
        ============================================ */
-    .bento-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-        gap: 1rem;
-        margin: 1rem 0;
+    section[data-testid="stSidebar"] {
+        background: #FFFFFF;
+        border-right: 1px solid #D4D4D4;
     }
 
-    .bento-card {
-        background: rgba(15, 23, 42, 0.6);
-        border: 1px solid rgba(100, 116, 139, 0.2);
-        border-radius: 16px;
-        padding: 1.5rem;
-        backdrop-filter: blur(20px);
-        transition: all 0.3s ease;
-        position: relative;
-        overflow: hidden;
-    }
-
-    .bento-card::before {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        height: 2px;
-        background: linear-gradient(90deg, transparent, #10b981, transparent);
-        opacity: 0;
-        transition: opacity 0.3s;
-    }
-
-    .bento-card:hover::before {
-        opacity: 1;
-    }
-
-    .bento-card:hover {
-        border-color: #10b981;
-        box-shadow: 0 0 30px rgba(16, 185, 129, 0.15);
-        transform: translateY(-2px);
+    section[data-testid="stSidebar"] h1,
+    section[data-testid="stSidebar"] h2,
+    section[data-testid="stSidebar"] h3 {
+        color: #000000;
+        font-family: 'IBM Plex Sans', sans-serif;
     }
 
     /* ============================================
-       WHALE WATCHER - Large Trade Alerts
+       BUTTONS - Clean Minimal Style
        ============================================ */
-    .whale-alert {
-        background: linear-gradient(135deg, rgba(239, 68, 68, 0.15), rgba(185, 28, 28, 0.05));
-        border: 1px solid rgba(239, 68, 68, 0.3);
-        border-left: 4px solid #ef4444;
-        border-radius: 12px;
-        padding: 1rem;
-        margin: 0.75rem 0;
-        animation: pulse-red 2s ease-in-out infinite;
-    }
-
-    .whale-alert-mega {
-        background: linear-gradient(135deg, rgba(168, 85, 247, 0.15), rgba(124, 58, 237, 0.05));
-        border: 1px solid rgba(168, 85, 247, 0.3);
-        border-left: 4px solid #a855f7;
-        animation: pulse-purple 2s ease-in-out infinite;
-    }
-
-    @keyframes pulse-red {
-        0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
-        50% { box-shadow: 0 0 20px 5px rgba(239, 68, 68, 0.2); }
-    }
-
-    @keyframes pulse-purple {
-        0%, 100% { box-shadow: 0 0 0 0 rgba(168, 85, 247, 0.4); }
-        50% { box-shadow: 0 0 20px 5px rgba(168, 85, 247, 0.2); }
-    }
-
-    /* ============================================
-       CATEGORY PILLS - Compact Design
-       ============================================ */
-    .category-pill {
-        display: inline-block;
-        background: rgba(30, 41, 59, 0.6);
-        border: 1px solid rgba(100, 116, 139, 0.3);
-        padding: 0.5rem 1rem;
-        border-radius: 20px;
-        margin: 0.25rem;
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 0.75rem;
-        color: #94a3b8;
-        transition: all 0.2s;
-        cursor: pointer;
-    }
-
-    .category-pill:hover {
-        border-color: #10b981;
-        color: #10b981;
-        box-shadow: 0 0 15px rgba(16, 185, 129, 0.2);
-    }
-
-    .category-pill-active {
-        background: linear-gradient(135deg, #10b981, #059669);
-        border-color: #10b981;
+    .stButton > button {
+        background: #000000;
         color: white;
-        box-shadow: 0 0 15px rgba(16, 185, 129, 0.3);
+        border: none;
+        font-family: 'IBM Plex Sans', sans-serif;
+        font-weight: 500;
+        padding: 0.5rem 1.5rem;
+        transition: all 0.2s ease;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        font-size: 0.75rem;
+    }
+
+    .stButton > button:hover {
+        background: #333333;
+    }
+
+    .stButton > button[kind="primary"] {
+        background: #0274B6;
+    }
+
+    .stButton > button[kind="primary"]:hover {
+        background: #025A94;
     }
 
     /* ============================================
-       SPARKLINES - Mini Charts
+       TABS - Newspaper Section Style
        ============================================ */
-    .sparkline-container {
-        height: 40px;
-        width: 100%;
-        position: relative;
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 0;
+        background: #FFFFFF;
+        border-bottom: 2px solid #000000;
     }
 
-    .sparkline {
-        stroke: #10b981;
-        stroke-width: 2;
-        fill: none;
+    .stTabs [data-baseweb="tab"] {
+        background: transparent;
+        color: #666666;
+        font-family: 'IBM Plex Sans', sans-serif;
+        font-weight: 500;
+        font-size: 0.85rem;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        padding: 1rem 1.5rem;
+        border-right: 1px solid #E0E0E0;
     }
 
-    .sparkline-down {
-        stroke: #ef4444;
+    .stTabs [aria-selected="true"] {
+        color: #000000;
+        border-bottom: 3px solid #000000;
+        font-weight: 600;
     }
 
     /* ============================================
-       LIVE UPDATE PULSE
+       INPUTS - Clean Form Style
        ============================================ */
-    .live-pulse {
-        animation: pulse-glow 2s ease-in-out infinite;
+    .stTextInput > div > div > input,
+    .stNumberInput > div > div > input {
+        background: #FFFFFF;
+        border: 1px solid #D4D4D4;
+        color: #1a1a1a;
+        font-family: 'IBM Plex Sans', sans-serif;
     }
 
-    @keyframes pulse-glow {
-        0%, 100% {
-            opacity: 1;
-            transform: scale(1);
-        }
-        50% {
-            opacity: 0.7;
-            transform: scale(1.02);
-        }
-    }
-
-    .live-indicator {
-        display: inline-block;
-        width: 8px;
-        height: 8px;
-        background: #10b981;
-        border-radius: 50%;
-        margin-right: 0.5rem;
-        animation: blink 1s ease-in-out infinite;
-    }
-
-    @keyframes blink {
-        0%, 100% { opacity: 1; }
-        50% { opacity: 0.3; }
+    .stTextInput > div > div > input:focus,
+    .stNumberInput > div > div > input:focus {
+        border-color: #0274B6;
+        box-shadow: 0 0 0 1px #0274B6;
     }
 
     /* ============================================
-       SCROLLBAR STYLING
+       DATA DISPLAY - Financial Table Style
+       ============================================ */
+    .stDataFrame {
+        border: 1px solid #D4D4D4;
+        background: #FFFFFF;
+    }
+
+    /* ============================================
+       TEXT COLORS - WSJ Palette
+       ============================================ */
+    .stMarkdown, .stMarkdown p, .stMarkdown li, .stMarkdown span {
+        color: #1a1a1a;
+    }
+
+    /* ============================================
+       DIVIDERS - Classic Rule Lines
+       ============================================ */
+    hr {
+        border: none;
+        border-top: 1px solid #D4D4D4;
+        margin: 2rem 0;
+    }
+
+    /* ============================================
+       SCROLLBAR - Minimal Style
        ============================================ */
     ::-webkit-scrollbar {
         width: 8px;
@@ -533,16 +350,51 @@ st.markdown("""
     }
 
     ::-webkit-scrollbar-track {
-        background: rgba(15, 23, 42, 0.5);
+        background: #F7F5F2;
     }
-    
+
     ::-webkit-scrollbar-thumb {
-        background: #475569;
+        background: #999999;
         border-radius: 4px;
     }
-    
+
     ::-webkit-scrollbar-thumb:hover {
-        background: #64748b;
+        background: #666666;
+    }
+
+    /* ============================================
+       RISK INDICATORS - WSJ Style
+       ============================================ */
+    .risk-critical {
+        color: #CC0000;
+        font-weight: 600;
+        font-family: 'IBM Plex Sans', sans-serif;
+    }
+
+    .risk-high {
+        color: #E67E22;
+        font-weight: 600;
+        font-family: 'IBM Plex Sans', sans-serif;
+    }
+
+    .risk-medium {
+        color: #0274B6;
+        font-weight: 600;
+        font-family: 'IBM Plex Sans', sans-serif;
+    }
+
+    .risk-low {
+        color: #666666;
+        font-weight: 500;
+        font-family: 'IBM Plex Sans', sans-serif;
+    }
+
+    /* ============================================
+       RESPONSIVE DESIGN
+       ============================================ */
+    @media (max-width: 768px) {
+        .main-title { font-size: 1.8rem; }
+        .metric-value { font-size: 1.8rem; }
     }
 </style>
 """, unsafe_allow_html=True)
@@ -1208,10 +1060,10 @@ if not df.empty:
             <div class="{alert_class}">
                 <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
                     <div style="flex: 1; min-width: 200px;">
-                        <div style="font-size: 1.2rem; font-weight: 700; color: #ef4444; font-family: 'Orbitron', monospace; text-shadow: 0 0 15px rgba(239, 68, 68, 0.5);">
+                        <div style="font-size: 1.2rem; font-weight: 700; color: #CC0000; font-family: 'IBM Plex Sans', sans-serif;">
                             ${trade['bet_size']:,.0f}
                         </div>
-                        <div style="color: #94a3b8; font-size: 0.85rem; margin-top: 0.25rem;">
+                        <div style="color: #1a1a1a; font-size: 0.85rem; margin-top: 0.25rem;">
                             {trade['market_question'][:60]}...
                         </div>
                     </div>
@@ -1317,17 +1169,17 @@ with tab1:
             fig_timeline.add_trace(go.Bar(
                 x=daily_counts['date'],
                 y=daily_counts['count'],
-                marker_color='#10b981',
-                marker_line_color='#059669',
-                marker_line_width=2
+                marker_color='#0274B6',
+                marker_line_color='#025a8f',
+                marker_line_width=1
             ))
             fig_timeline.update_layout(
                 height=300,
-                paper_bgcolor='rgba(10, 14, 39, 0.5)',
-                plot_bgcolor='rgba(15, 23, 42, 0.5)',
-                font_color='#94a3b8',
-                xaxis=dict(gridcolor='rgba(16, 185, 129, 0.1)'),
-                yaxis=dict(gridcolor='rgba(16, 185, 129, 0.1)')
+                paper_bgcolor='#F7F5F2',
+                plot_bgcolor='#FFFFFF',
+                font_color='#1a1a1a',
+                xaxis=dict(gridcolor='rgba(0, 0, 0, 0.1)'),
+                yaxis=dict(gridcolor='rgba(0, 0, 0, 0.1)')
             )
             st.plotly_chart(fig_timeline, use_container_width=True)
         
@@ -1338,17 +1190,17 @@ with tab1:
                 df,
                 x='odds_cents',
                 nbins=20,
-                color_discrete_sequence=['#ef4444']
+                color_discrete_sequence=['#CC0000']
             )
             fig_odds.update_layout(
                 height=300,
-                paper_bgcolor='rgba(10, 14, 39, 0.5)',
-                plot_bgcolor='rgba(15, 23, 42, 0.5)',
-                font_color='#94a3b8',
+                paper_bgcolor='#F7F5F2',
+                plot_bgcolor='#FFFFFF',
+                font_color='#1a1a1a',
                 xaxis_title="Entry Price (cents)",
                 yaxis_title="Count",
-                xaxis=dict(gridcolor='rgba(239, 68, 68, 0.1)'),
-                yaxis=dict(gridcolor='rgba(239, 68, 68, 0.1)')
+                xaxis=dict(gridcolor='rgba(0, 0, 0, 0.1)'),
+                yaxis=dict(gridcolor='rgba(0, 0, 0, 0.1)')
             )
             st.plotly_chart(fig_odds, use_container_width=True)
         
@@ -1491,14 +1343,14 @@ with tab2:
 
             card_html = f'<div class="{alert_class}" style="margin-bottom: 1rem;">'
             card_html += '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">'
-            card_html += f'<div style="font-size: 1.1rem; font-weight: 700; color: #e2e8f0; font-family: Orbitron, sans-serif; flex: 1; margin-right: 1rem;">{row["market_question"][:100]}</div>'
+            card_html += f'<div style="font-size: 1.1rem; font-weight: 700; color: #000000; font-family: Crimson Text, serif; flex: 1; margin-right: 1rem;">{row["market_question"][:100]}</div>'
             card_html += f'<span class="{badge_class}">{row["outcome"]}</span>'
             card_html += '</div>'
 
             if risk_indicator:
-                card_html += f'<div style="color: #ef4444; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.5rem;">{risk_indicator}</div>'
+                card_html += f'<div style="color: #CC0000; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.5rem;">{risk_indicator}</div>'
 
-            card_html += f'<div style="color: #64748b; font-size: 0.8rem; font-family: monospace;">Category: {row["market_category"]}</div>'
+            card_html += f'<div style="color: #666666; font-size: 0.8rem; font-family: IBM Plex Sans, sans-serif;">Category: {row["market_category"]}</div>'
             card_html += '</div>'
 
             st.markdown(card_html, unsafe_allow_html=True)
@@ -1508,21 +1360,21 @@ with tab2:
 
             with col1:
                 st.markdown("**BET SIZE**")
-                st.markdown(f"<div style='font-size: 1.3rem; font-weight: 700; color: #10b981; font-family: \"Orbitron\", monospace;'>${row['bet_size']:,.0f}</div>", unsafe_allow_html=True)
+                st.markdown(f"<div style='font-size: 1.3rem; font-weight: 700; color: #0274B6; font-family: \"IBM Plex Sans\", sans-serif;'>${row['bet_size']:,.0f}</div>", unsafe_allow_html=True)
                 potential = row['bet_size'] / row['odds'] if row['odds'] > 0 else 0
                 st.caption(f"Potential: ${potential:,.0f}")
 
             with col2:
                 st.markdown("**ENTRY PRICE**")
-                price_color = "#ef4444" if row['odds_cents'] < 10 else "#10b981"
-                st.markdown(f"<div style='font-size: 1.3rem; font-weight: 700; color: {price_color}; font-family: \"Orbitron\", monospace;'>{row['odds_cents']:.1f}¢</div>", unsafe_allow_html=True)
+                price_color = "#CC0000" if row['odds_cents'] < 10 else "#0274B6"
+                st.markdown(f"<div style='font-size: 1.3rem; font-weight: 700; color: {price_color}; font-family: \"IBM Plex Sans\", sans-serif;'>{row['odds_cents']:.1f}¢</div>", unsafe_allow_html=True)
                 st.caption("on the dollar")
 
             with col3:
                 st.markdown("**WALLET**")
                 st.code(row['wallet_address'], language=None)
                 if row['wallet_age_days'] is not None:
-                    age_color = "#ef4444" if row['wallet_age_days'] < 7 else "#64748b"
+                    age_color = "#CC0000" if row['wallet_age_days'] < 7 else "#666666"
                     st.markdown(f"<div style='color: {age_color}; font-weight: 600;'>Age: {row['wallet_age_days']}d</div>", unsafe_allow_html=True)
                 else:
                     st.caption("Age: Unknown", help="Could not determine wallet age")
@@ -2007,18 +1859,18 @@ with tab6:
                 y='bet_size',
                 color='outcome',
                 size='bet_size',
-                color_discrete_map={'YES': '#10b981', 'NO': '#ef4444'},
+                color_discrete_map={'YES': '#0274B6', 'NO': '#CC0000'},
                 hover_data=['market_question']
             )
             fig_scatter.update_layout(
                 height=400,
-                paper_bgcolor='rgba(0,0,0,0)',
-                plot_bgcolor='rgba(0,0,0,0)',
-                font_color='#94a3b8',
+                paper_bgcolor='#F7F5F2',
+                plot_bgcolor='#FFFFFF',
+                font_color='#1a1a1a',
                 xaxis_title="Entry Price (cents)",
                 yaxis_title="Bet Size ($)",
-                xaxis=dict(gridcolor='rgba(100,116,139,0.2)'),
-                yaxis=dict(gridcolor='rgba(100,116,139,0.2)')
+                xaxis=dict(gridcolor='rgba(0, 0, 0, 0.1)'),
+                yaxis=dict(gridcolor='rgba(0, 0, 0, 0.1)')
             )
             st.plotly_chart(fig_scatter, use_container_width=True)
         
@@ -2032,19 +1884,19 @@ with tab6:
                     known_ages,
                     x='wallet_age_days',
                     nbins=20,
-                    color_discrete_sequence=['#f59e0b']
+                    color_discrete_sequence=['#0274B6']
                 )
-                fig_age.add_vline(x=7, line_dash="dash", line_color="#ef4444")
-                fig_age.add_vline(x=14, line_dash="dash", line_color="#f59e0b")
+                fig_age.add_vline(x=7, line_dash="dash", line_color="#CC0000")
+                fig_age.add_vline(x=14, line_dash="dash", line_color="#0274B6")
                 fig_age.update_layout(
                     height=400,
-                    paper_bgcolor='rgba(0,0,0,0)',
-                    plot_bgcolor='rgba(0,0,0,0)',
-                    font_color='#94a3b8',
+                    paper_bgcolor='#F7F5F2',
+                    plot_bgcolor='#FFFFFF',
+                    font_color='#1a1a1a',
                     xaxis_title="Wallet Age (days)",
                     yaxis_title="Count",
-                    xaxis=dict(gridcolor='rgba(100,116,139,0.2)'),
-                    yaxis=dict(gridcolor='rgba(100,116,139,0.2)')
+                    xaxis=dict(gridcolor='rgba(0, 0, 0, 0.1)'),
+                    yaxis=dict(gridcolor='rgba(0, 0, 0, 0.1)')
                 )
                 st.plotly_chart(fig_age, use_container_width=True)
             else:
