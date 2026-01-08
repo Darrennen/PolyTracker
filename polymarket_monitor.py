@@ -35,7 +35,7 @@ class AlertChannel(Enum):
 class DetectionConfig:
     """Configuration for suspicious activity detection"""
     wallet_age_days: int = 14  # Flag wallets newer than X days
-    min_bet_size: float = 10000  # Minimum bet size in USD (CASH)
+    min_bet_size: float = 5000  # Minimum bet size in USD (CASH)
     max_odds: float = 0.10  # Flag bets on outcomes with odds below X (e.g., 10 cents)
     check_wallet_age: bool = True
     check_bet_size: bool = True

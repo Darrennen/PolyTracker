@@ -761,7 +761,7 @@ with st.sidebar:
             "Minimum bet size (USD)",
             min_value=100,
             max_value=1000000,
-            value=10000,
+            value=5000,
             step=1000,
             help="Only flag bets above this amount"
         )
@@ -896,6 +896,18 @@ with st.sidebar:
     
     if st.button("▶️ Run Scan Now", use_container_width=True):
         if st.session_state.monitor:
+            # Update monitor config with current UI settings before scanning
+            updated_config = DetectionConfig(
+                wallet_age_days=wallet_age_days,
+                min_bet_size=min_bet_size,
+                max_odds=max_odds,
+                check_wallet_age=wallet_age_enabled,
+                check_bet_size=bet_size_enabled,
+                check_odds=odds_enabled
+            )
+            st.session_state.monitor.config = updated_config
+            st.session_state.config = updated_config
+
             with st.spinner("Scanning..."):
                 if scan_type == "Quick (Recent Trades)":
                     stats = st.session_state.monitor.scan_recent_trades()
@@ -905,7 +917,7 @@ with st.sidebar:
                     stats = st.session_state.monitor.scan_markets(categories=categories)
                 else:
                     stats = st.session_state.monitor.scan_tracked_wallets()
-                
+
                 st.session_state.last_scan_time = datetime.now()
                 st.success(f"✓ Found {stats.get('suspicious_found', 0)} suspicious")
                 st.rerun()
