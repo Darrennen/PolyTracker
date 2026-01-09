@@ -1180,10 +1180,10 @@ class PolymarketMonitor:
             if not wallet:
                 return None
             
-            # Calculate USD value
+            # Calculate USD value - prefer API's usdcSize for accuracy
             size = float(trade.get('size', 0))
             price = float(trade.get('price', 0))
-            usd_value = size * price  # This is approximate; actual is size for buys
+            usd_value = float(trade.get('usdcSize') or trade.get('bet_size') or (size * price))
             
             # For BUY orders, the cost is size * price
             # For market buys at low prices, the USD spent is the number of shares * entry price
@@ -1201,10 +1201,11 @@ class PolymarketMonitor:
             wallet_age = None
             if self.config.check_wallet_age:
                 wallet_age = self.blockchain.get_wallet_age_days(wallet)
-                
-                # If we can determine age and it's older than threshold, skip
-                # Unless it's a tracked wallet
-                if wallet_age is not None and wallet_age > self.config.wallet_age_days:
+
+                # Reject if: (1) age cannot be determined (conservative approach),
+                # or (2) age is older than threshold
+                # Exception: always allow tracked wallets
+                if (wallet_age is None or wallet_age > self.config.wallet_age_days):
                     if not self.is_tracked_wallet(wallet):
                         return None
             
