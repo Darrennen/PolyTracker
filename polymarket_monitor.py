@@ -1160,13 +1160,56 @@ class PolymarketMonitor:
 
         return score, risk_level
 
+    def enrich_trade_with_usdcsize(self, trade: Dict) -> Dict:
+        """
+        Enrich trade from /trades endpoint with accurate usdcSize from /activity endpoint
+
+        The /trades endpoint doesn't return usdcSize, so we fetch it from /activity.
+        This ensures accurate bet size filtering.
+        """
+        # If already has usdcSize, return as-is
+        if 'usdcSize' in trade and trade['usdcSize'] is not None:
+            return trade
+
+        wallet = trade.get('proxyWallet', '').lower()
+        timestamp = trade.get('timestamp')
+        tx_hash = trade.get('transactionHash')
+
+        if not wallet or not timestamp:
+            return trade
+
+        try:
+            # Fetch recent activity for this wallet
+            # Use a small time window around the trade timestamp
+            activity = self.api.get_user_activity(
+                user=wallet,
+                activity_type=["TRADE"],
+                start=timestamp - 60,  # 60 seconds before
+                end=timestamp + 60,    # 60 seconds after
+                limit=10
+            )
+
+            # Find the matching trade by timestamp and transaction hash
+            for activity_item in activity:
+                if (activity_item.get('timestamp') == timestamp or
+                    activity_item.get('transactionHash') == tx_hash):
+                    # Found matching trade with usdcSize
+                    if 'usdcSize' in activity_item:
+                        trade['usdcSize'] = activity_item['usdcSize']
+                        logger.debug(f"Enriched trade with usdcSize: {activity_item['usdcSize']}")
+                        break
+        except Exception as e:
+            logger.warning(f"Failed to enrich trade with usdcSize: {e}")
+
+        return trade
+
     def analyze_trade(self, trade: Dict) -> Optional[Dict]:
         """
         Analyze a trade for suspicious patterns
-        
+
         Trade object from Data API has:
         - proxyWallet: user address
-        - side: BUY or SELL  
+        - side: BUY or SELL
         - size: number of shares
         - price: price per share (0-1)
         - outcome: YES or NO
@@ -1179,24 +1222,18 @@ class PolymarketMonitor:
             wallet = trade.get('proxyWallet', '').lower()
             if not wallet:
                 return None
-            
-            # Calculate USD value - prefer API's usdcSize for accuracy
+
+            # Get basic trade info for initial filtering
             size = float(trade.get('size', 0))
             price = float(trade.get('price', 0))
-            usd_value = float(trade.get('usdcSize') or trade.get('bet_size') or (size * price))
-            
-            # For BUY orders, the cost is size * price
-            # For market buys at low prices, the USD spent is the number of shares * entry price
             side = trade.get('side', 'BUY')
-            
-            # Check bet size threshold
-            if self.config.check_bet_size and usd_value < self.config.min_bet_size:
-                return None
-            
+
+            # Apply cheap filters first to avoid unnecessary API calls
+
             # Check entry price (odds) - flag low-price bets
             if self.config.check_odds and price > self.config.max_odds:
                 return None
-            
+
             # Check wallet age
             wallet_age = None
             if self.config.check_wallet_age:
@@ -1208,6 +1245,18 @@ class PolymarketMonitor:
                 if (wallet_age is None or wallet_age > self.config.wallet_age_days):
                     if not self.is_tracked_wallet(wallet):
                         return None
+
+            # Now enrich with accurate usdcSize (only for trades that passed initial filters)
+            trade = self.enrich_trade_with_usdcsize(trade)
+
+            # Calculate USD value - prefer API's usdcSize for accuracy
+            usd_value = float(trade.get('usdcSize') or trade.get('bet_size') or (size * price))
+
+            # Check bet size threshold
+            # Note: scan_recent_trades() already filters server-side, but we check again
+            # for accuracy and for trades from other sources (tracked wallets, etc.)
+            if self.config.check_bet_size and usd_value < self.config.min_bet_size:
+                return None
             
             # Parse outcome field - Polymarket API may return different formats
             outcome_raw = trade.get('outcome', '')
